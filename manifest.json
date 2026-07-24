@@ -1,0 +1,10 @@
+{
+  "id": "floor-notes",
+  "name": "Floor notes",
+  "version": "0.1.0",
+  "minAppVersion": "1.8.7",
+  "description": "Presents a dedicated Markdown file as a threaded record flow.",
+  "author": "Aluxes",
+  "authorUrl": "https://github.com/AshenAshes",
+  "isDesktopOnly": false
+}

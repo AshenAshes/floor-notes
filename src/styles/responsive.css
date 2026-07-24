@@ -1,0 +1,101 @@
+@media (width <= 600px) {
+  .floor-notes-header {
+    padding-inline: var(--size-4-3);
+  }
+
+  .floor-notes-records-container {
+    padding-inline: var(--size-4-3);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-bubble .floor-notes-replies {
+    padding-inline: var(--size-4-3);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-glass .floor-notes-record-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor-group {
+    padding-inline-start: var(--size-4-5);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor .floor-notes-record-content {
+    padding-inline-end: 0;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor-number {
+    inset-inline-start: calc(0px - var(--size-4-5));
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor .floor-notes-meta-right,
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply .floor-notes-meta-right {
+    flex-direction: row;
+    margin-top: var(--size-4-2);
+    opacity: 1;
+    position: static;
+    transform: none;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor .floor-notes-record-footer,
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply .floor-notes-record-footer {
+    justify-content: flex-end;
+    margin-top: var(--size-4-2);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-replies {
+    margin-inline-end: 0;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply {
+    padding-inline-end: 0;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-record-list {
+    --timeline-axis-offset: 3px;
+    --timeline-record-indent: 28px;
+    --timeline-sub-indent: 16px;
+
+    padding-inline-start: var(--timeline-record-indent);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-replies {
+    --timeline-replies-padding-inline-start: 24px;
+
+    padding-inline-start: var(--timeline-replies-padding-inline-start);
+  }
+}
+
+@media (width <= 420px) {
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-record-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    padding-block-end: var(--size-4-1);
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-meta-right {
+    align-self: flex-end;
+    position: static;
+    transform: none;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor:hover .floor-notes-meta-right,
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-floor:focus-within .floor-notes-meta-right,
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply:hover .floor-notes-meta-right,
+  .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply:focus-within .floor-notes-meta-right {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floor-notes-modal-toolbar button.floor-notes-toolbar-btn,
+  .floor-notes-editor-tab,
+  .floor-notes-editor-tabs::after,
+  .floor-notes-floor-group,
+  .floor-notes-meta-right,
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-floor::after,
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-floor::before,
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-reply::before,
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-date {
+    transition: none;
+  }
+}

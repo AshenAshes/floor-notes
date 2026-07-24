@@ -1,0 +1,6 @@
+.floor-notes-modal-warn {
+  color: var(--text-error);
+  font-size: 0.8rem;
+  margin-top: 6px;
+  min-height: 1.2em;
+}

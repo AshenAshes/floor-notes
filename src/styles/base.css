@@ -1,0 +1,26 @@
+.floor-notes-announcer {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.floor-notes-highlight {
+  background-color: var(--background-modifier-accent-subtle);
+  transition: background-color 0.5s ease-out;
+}
+
+.floor-notes-confirm-modal .setting-item button,
+.floor-notes-editor-modal .floor-notes-editor-action,
+.floor-notes-favorite-item {
+  min-height: 44px;
+}
+
+.floor-notes-thread-view button.copy-code-button,
+.floor-notes-modal-preview button.copy-code-button {
+  display: none;
+}

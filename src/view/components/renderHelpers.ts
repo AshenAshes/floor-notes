@@ -13,6 +13,7 @@ export function createA11yButton(
     text,
     cls: cls || "floor-notes-btn",
     attr: {
+      type: "button",
       "aria-label": ariaLabel,
       "data-tooltip-position": "top"
     }
@@ -21,13 +22,6 @@ export function createA11yButton(
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     onClick(btn);
-  });
-
-  btn.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onClick(btn);
-    }
   });
 
   return btn;
@@ -43,6 +37,7 @@ export function createA11yIconButton(
   const btn = parent.createEl("button", {
     cls: cls || "floor-notes-icon-btn",
     attr: {
+      type: "button",
       "aria-label": ariaLabel,
       "data-tooltip-position": "top"
     }
@@ -52,13 +47,6 @@ export function createA11yIconButton(
   btn.addEventListener("click", (e) => {
     e.preventDefault();
     onClick(btn);
-  });
-
-  btn.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onClick(btn);
-    }
   });
 
   return btn;

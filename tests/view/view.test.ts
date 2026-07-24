@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as obsidian from "obsidian";
 import { FloorThreadView } from "../../src/view/FloorThreadView";
 import { FileIdentityRegistry } from "../../src/services/FileIdentityRegistry";
@@ -39,6 +39,24 @@ floor-notes: 1
 [id:: invalid-id]
 [date:: 2026-07-16 15:30:12]
 `;
+
+const paginatedDoc = Array.from({ length: 31 }, (_, index) => {
+  const floorNumber = index + 1;
+  const recordId = `floor-20260716-1530${String(floorNumber).padStart(2, "0")}-${String(floorNumber).padStart(8, "0")}`;
+  return `## Floor
+[id:: ${recordId}]
+[date:: 2026-07-16 15:30:12]
+
+Floor ${floorNumber} body.
+`;
+}).join("\n");
+
+const validPaginatedDoc = `---
+floor-notes: 1
+---
+# Thread Title
+
+${paginatedDoc}`;
 
 describe("T-070: Repeated render scope lifecycle tests", () => {
   beforeEach(() => {
@@ -390,6 +408,82 @@ Reply body.
 
     expect(_testState.loadedComponents.size).toBe(0);
     expect(_testState.unloadedComponents.size).toBe(0);
+  });
+});
+
+describe("pagination localization", () => {
+  beforeEach(() => {
+    setLocale("en");
+  });
+
+  afterEach(() => {
+    setLocale("en");
+  });
+
+  it("renders English pagination controls and defines an English focus announcement", async () => {
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: {
+        read: vi.fn().mockResolvedValue(validPaginatedDoc),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+    const file = mockTFile("thread.md", "thread.md");
+
+    await view.onLoadFile(file);
+
+    const pagination = view.contentEl.querySelector<HTMLElement>(".floor-notes-pagination");
+    const select = pagination?.querySelector<HTMLSelectElement>(".floor-notes-page-select");
+    const buttons = pagination?.querySelectorAll<HTMLButtonElement>("button");
+    expect(Array.from(select?.options ?? []).map((option) => option.innerText)).toEqual([
+      "Page 1 / 2",
+      "Page 2 / 2"
+    ]);
+    expect(buttons?.[0]?.getAttribute("aria-label")).toBe("Previous page");
+    expect(buttons?.[1]?.getAttribute("aria-label")).toBe("Next page");
+    expect(en.navigatedToFloor
+      .replace("{title}", "Thread Title")
+      .replace("{recordId}", "floor-20260716-153031-00000031"))
+      .toBe("Navigated to Thread Title, floor floor-20260716-153031-00000031");
+  });
+
+  it("renders Chinese pagination controls", async () => {
+    setLocale("zh-cn");
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: {
+        read: vi.fn().mockResolvedValue(validPaginatedDoc),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+
+    await view.onLoadFile(mockTFile("thread.md", "thread.md"));
+
+    const pagination = view.contentEl.querySelector<HTMLElement>(".floor-notes-pagination");
+    const select = pagination?.querySelector<HTMLSelectElement>(".floor-notes-page-select");
+    const buttons = pagination?.querySelectorAll<HTMLButtonElement>("button");
+    expect(Array.from(select?.options ?? []).map((option) => option.innerText)).toEqual([
+      "第 1 / 2 页",
+      "第 2 / 2 页"
+    ]);
+    expect(buttons?.[0]?.getAttribute("aria-label")).toBe("上一页");
+    expect(buttons?.[1]?.getAttribute("aria-label")).toBe("下一页");
+    expect(zhCn.navigatedToFloor
+      .replace("{title}", "主题")
+      .replace("{recordId}", "floor-20260716-153031-00000031"))
+      .toBe("已跳转至 主题，楼层 floor-20260716-153031-00000031");
   });
 });
 

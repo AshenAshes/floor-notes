@@ -629,7 +629,7 @@ export class FloorThreadView extends FileView {
       
       const prevBtn = paginationEl.createEl("button", {
         cls: "floor-notes-pagination-btn",
-        attr: { "aria-label": "Previous page" }
+        attr: { "aria-label": t("previousPage") }
       });
       setIcon(prevBtn, "chevron-left");
       if (this.currentPage === 1) {
@@ -648,7 +648,9 @@ export class FloorThreadView extends FileView {
       for (let i = 1; i <= totalPages; i++) {
         const option = selectEl.createEl("option", {
           value: String(i),
-          text: `第 ${i} / ${totalPages} 页`
+          text: t("pageOption")
+            .replace("{current}", String(i))
+            .replace("{total}", String(totalPages))
         });
         if (i === this.currentPage) {
           option.selected = true;
@@ -661,7 +663,7 @@ export class FloorThreadView extends FileView {
 
       const nextBtn = paginationEl.createEl("button", {
         cls: "floor-notes-pagination-btn",
-        attr: { "aria-label": "Next page" }
+        attr: { "aria-label": t("nextPage") }
       });
       setIcon(nextBtn, "chevron-right");
       if (this.currentPage === totalPages) {
@@ -707,7 +709,11 @@ export class FloorThreadView extends FileView {
         }
 
         if (this.announcerEl) {
-          this.announcerEl.setText(`Navigated to ${doc.title || file.basename}, floor ${focusFloorId}`);
+          this.announcerEl.setText(
+            t("navigatedToFloor")
+              .replace("{title}", doc.title || file.basename)
+              .replace("{recordId}", focusFloorId)
+          );
         }
       }
     } else if (scrollToTop) {

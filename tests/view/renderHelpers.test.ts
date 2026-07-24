@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { Component } from "obsidian";
 import type { ParsedRecord } from "../../src/format/types";
-import { renderHeader, renderRecord } from "../../src/view/components/renderHelpers";
+import {
+  createA11yButton,
+  createA11yIconButton,
+  renderHeader,
+  renderRecord
+} from "../../src/view/components/renderHelpers";
 
 const record: ParsedRecord = {
   type: "floor",
@@ -10,6 +15,35 @@ const record: ParsedRecord = {
   favorite: false,
   floorNumber: 1
 } as ParsedRecord;
+
+describe("accessible button factories", () => {
+  it("uses native button activation without invoking callbacks from keydown", () => {
+    const container = document.createElement("div");
+    const onTextButtonClick = vi.fn();
+    const onIconButtonClick = vi.fn();
+    const textButton = createA11yButton(container, "Action", "Action", onTextButtonClick);
+    const iconButton = createA11yIconButton(container, "plus", "Add", onIconButtonClick);
+
+    expect(textButton.type).toBe("button");
+    expect(iconButton.type).toBe("button");
+
+    for (const button of [textButton, iconButton]) {
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    }
+
+    expect(onTextButtonClick).not.toHaveBeenCalled();
+    expect(onIconButtonClick).not.toHaveBeenCalled();
+
+    textButton.click();
+    iconButton.click();
+
+    expect(onTextButtonClick).toHaveBeenCalledOnce();
+    expect(onTextButtonClick).toHaveBeenCalledWith(textButton);
+    expect(onIconButtonClick).toHaveBeenCalledOnce();
+    expect(onIconButtonClick).toHaveBeenCalledWith(iconButton);
+  });
+});
 
 describe("renderHeader", () => {
   it("adds an accessible control for changing the thread view style", () => {

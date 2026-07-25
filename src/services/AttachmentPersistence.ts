@@ -50,9 +50,22 @@ export async function savePastedImageAttachment(
     }
   }
 
-  const attachmentPath = await app.fileManager.getAvailablePathForAttachment(
-    `${stem}.${extension}`,
-    sourcePath
-  );
-  return app.vault.createBinary(attachmentPath, data);
+  // getAvailablePathForAttachment does not reserve a path. Retry a bounded number of
+  // times if another concurrent paste claims the candidate before createBinary runs.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const attachmentPath = await app.fileManager.getAvailablePathForAttachment(
+      `${stem}.${extension}`,
+      sourcePath
+    );
+    try {
+      return await app.vault.createBinary(attachmentPath, data);
+    } catch (error) {
+      lastError = error;
+      if (!app.vault.getAbstractFileByPath(attachmentPath)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError;
 }

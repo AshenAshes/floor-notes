@@ -1,4 +1,4 @@
-import { FileView, WorkspaceLeaf, TFile, Component, Menu, Notice, setIcon } from "obsidian";
+import { FileView, WorkspaceLeaf, TFile, Component, Menu, Notice, setIcon, ViewStateResult } from "obsidian";
 import { ParsedThreadDocument, ParsedRecord } from "../format/types";
 import { parseThreadDocument } from "../format/parser";
 import { FileIdentityRegistry } from "../services/FileIdentityRegistry";
@@ -29,6 +29,9 @@ export class FloorThreadView extends FileView {
   private currentPage = 1;
   private lastFilePath = "";
   private fallbackInProgress = false;
+  private pendingFocusRecordId: string | undefined;
+  private readonly visibleRepliesByFloor = new Map<string, number>();
+  private static readonly REPLIES_PER_BATCH = 50;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -113,15 +116,25 @@ export class FloorThreadView extends FileView {
     return null;
   }
 
+  override async setState(state: unknown, result: ViewStateResult): Promise<void> {
+    const source = state && typeof state === "object" ? state as Record<string, unknown> : {};
+    this.pendingFocusRecordId = typeof source.recordId === "string" ? source.recordId : undefined;
+    const { recordId: _recordId, ...fileState } = source;
+    await super.setState(fileState, result);
+  }
+
   override async onLoadFile(file: TFile): Promise<void> {
     this.fallbackInProgress = false;
     this.isDeleted = false;
     if (this.lastFilePath !== file.path) {
       this.currentPage = 1;
       this.lastFilePath = file.path;
+      this.visibleRepliesByFloor.clear();
     }
     await super.onLoadFile(file);
-    await this.requestGeneration();
+    const focusRecordId = this.pendingFocusRecordId;
+    this.pendingFocusRecordId = undefined;
+    await this.requestGeneration(focusRecordId);
   }
 
   override async onUnloadFile(file: TFile): Promise<void> {
@@ -550,6 +563,11 @@ export class FloorThreadView extends FileView {
       );
       if (targetGroupIndex !== -1) {
         this.currentPage = Math.floor(targetGroupIndex / itemsPerPage) + 1;
+        const targetGroup = groups[targetGroupIndex]!;
+        const replyIndex = targetGroup.replies.findIndex((reply) => reply.id === focusFloorId);
+        if (replyIndex !== -1) {
+          this.visibleRepliesByFloor.set(targetGroup.floor.id, replyIndex + 1);
+        }
       }
     }
 
@@ -592,7 +610,8 @@ export class FloorThreadView extends FileView {
       // Render nested replies
       if (group.replies.length > 0) {
         const repliesEl = floorGroupEl.createDiv({ cls: "floor-notes-replies" });
-        for (const reply of group.replies) {
+        const visibleReplies = this.visibleRepliesByFloor.get(group.floor.id) ?? FloorThreadView.REPLIES_PER_BATCH;
+        for (const reply of group.replies.slice(0, visibleReplies)) {
           if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) return;
 
           const replyBody = doc.rawText.substring(reply.bodySpan.start, reply.bodySpan.end);
@@ -607,6 +626,20 @@ export class FloorThreadView extends FileView {
             () => handleEdit(reply, replyBody),
             () => handleDelete(reply)
           );
+        }
+        if (visibleReplies < group.replies.length) {
+          const loadMore = repliesEl.createEl("button", {
+            cls: "floor-notes-load-more-replies",
+            text: t("loadMoreReplies")
+          });
+          loadMore.type = "button";
+          loadMore.addEventListener("click", () => {
+            this.visibleRepliesByFloor.set(
+              group.floor.id,
+              Math.min(group.replies.length, visibleReplies + FloorThreadView.REPLIES_PER_BATCH)
+            );
+            void this.requestGeneration();
+          });
         }
       }
     }

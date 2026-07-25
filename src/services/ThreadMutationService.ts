@@ -3,7 +3,7 @@ import { FileIdentityRegistry } from "./FileIdentityRegistry";
 import { SerialTaskQueue } from "./SerialTaskQueue";
 import { parseThreadDocument } from "../format/parser";
 import { ParsedThreadDocument } from "../format/types";
-import { ThreadViewStyle } from "../settings/types";
+import { PreferredNewline, ThreadViewStyle } from "../settings/types";
 import {
   OperationResult,
   addFloor,
@@ -23,7 +23,8 @@ export class ThreadMutationService {
 
   constructor(
     private readonly app: App,
-    private readonly registry: FileIdentityRegistry
+    private readonly registry: FileIdentityRegistry,
+    private readonly getPreferredNewline: () => PreferredNewline = () => "auto"
   ) {}
 
   public addAppliedListener(listener: (token: string, newDoc: ParsedThreadDocument) => void): void {
@@ -106,19 +107,19 @@ export class ThreadMutationService {
   }
 
   public async addFloor(file: TFile, body: string, date: Date): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => addFloor(doc, body, date));
+    return this.executeMutation(file, (doc) => addFloor(doc, body, date, this.getPreferredNewline()));
   }
 
   public async addReply(file: TFile, targetFloorId: string, body: string, date: Date): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => addReply(doc, targetFloorId, body, date));
+    return this.executeMutation(file, (doc) => addReply(doc, targetFloorId, body, date, this.getPreferredNewline()));
   }
 
   public async editFloor(file: TFile, targetId: string, expectedBody: string, newBody: string): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => editFloor(doc, targetId, expectedBody, newBody));
+    return this.executeMutation(file, (doc) => editFloor(doc, targetId, expectedBody, newBody, this.getPreferredNewline()));
   }
 
   public async editReply(file: TFile, targetId: string, expectedBody: string, newBody: string): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => editReply(doc, targetId, expectedBody, newBody));
+    return this.executeMutation(file, (doc) => editReply(doc, targetId, expectedBody, newBody, this.getPreferredNewline()));
   }
 
   public async deleteFloor(
@@ -126,22 +127,22 @@ export class ThreadMutationService {
     targetId: string,
     expectedRevisions: readonly { readonly id: string; readonly revision: string }[]
   ): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => deleteFloor(doc, targetId, expectedRevisions));
+    return this.executeMutation(file, (doc) => deleteFloor(doc, targetId, expectedRevisions, this.getPreferredNewline()));
   }
 
   public async deleteReply(file: TFile, targetId: string, expectedRevision: string): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => deleteReply(doc, targetId, expectedRevision));
+    return this.executeMutation(file, (doc) => deleteReply(doc, targetId, expectedRevision, this.getPreferredNewline()));
   }
 
   public async setFavorite(file: TFile, floorId: string, desired: boolean): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => setFavorite(doc, floorId, desired));
+    return this.executeMutation(file, (doc) => setFavorite(doc, floorId, desired, this.getPreferredNewline()));
   }
 
   public async setSortOrder(file: TFile, desired: "asc" | "desc"): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => setSortOrder(doc, desired));
+    return this.executeMutation(file, (doc) => setSortOrder(doc, desired, this.getPreferredNewline()));
   }
 
   public async setViewStyle(file: TFile, desired: ThreadViewStyle): Promise<OperationResult> {
-    return this.executeMutation(file, (doc) => setViewStyle(doc, desired));
+    return this.executeMutation(file, (doc) => setViewStyle(doc, desired, this.getPreferredNewline()));
   }
 }

@@ -197,7 +197,7 @@ export function renderErrorList(container: HTMLElement, diagnostics: readonly Di
   for (const diag of diagnostics) {
     const item = listEl.createEl("li");
     item.createSpan({ cls: "floor-notes-error-code", text: `[${diag.code}] ` });
-    item.createSpan({ text: diag.message });
+    item.createSpan({ text: t("diagnosticFormatError").replace("{code}", diag.code) });
     if (diag.line !== undefined) {
       item.createSpan({ cls: "floor-notes-error-loc", text: ` (${t("lineLabel")} ${diag.line}, ${t("colLabel")} ${diag.column})` });
     }

@@ -634,7 +634,9 @@ body .modal.floor-notes-confirm-modal .modal-content .setting-item {
   top: var(--floor-notes-emoji-top);
   left: var(--floor-notes-emoji-left);
   z-index: 100;
-  width: 320px;
+  box-sizing: border-box;
+  width: min(320px, calc(100% - (var(--size-4-3) * 2)));
+  max-width: calc(100% - (var(--size-4-3) * 2));
   background-color: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);

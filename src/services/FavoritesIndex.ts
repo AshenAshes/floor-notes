@@ -18,8 +18,12 @@ interface PathInfo {
 }
 
 export class FavoritesIndex {
+  private static readonly MAX_CONCURRENT_PROCESSES = 4;
   private paths = new Map<string, PathInfo>();
   private listeners = new Set<() => void>();
+  private pending = new Map<string, TFile>();
+  private processing = new Set<string>();
+  private activeWorkers = 0;
 
   constructor(
     private readonly app: App,
@@ -37,21 +41,21 @@ export class FavoritesIndex {
     const files = this.app.vault.getMarkdownFiles();
     for (const file of files) {
       if (this.isCandidate(file)) {
-        void this.processFile(file);
+        this.scheduleProcess(file);
       }
     }
 
     // 2. Register Vault events
     register(this.app.vault.on("create", (file) => {
       if (file instanceof TFile && this.isCandidate(file)) {
-        void this.processFile(file);
+        this.scheduleProcess(file);
       }
     }));
 
     register(this.app.vault.on("modify", (file) => {
       if (file instanceof TFile) {
         if (this.isCandidate(file)) {
-          void this.processFile(file);
+          this.scheduleProcess(file);
         } else if (this.paths.has(file.path)) {
           // Qualification lost
           this.tombstone(file.path);
@@ -87,7 +91,7 @@ export class FavoritesIndex {
             state: "active",
             entries: migratedEntries
           });
-          void this.processFile(file);
+          this.scheduleProcess(file);
         }
         this.notify();
       }
@@ -97,7 +101,7 @@ export class FavoritesIndex {
     register(this.app.metadataCache.on("changed", (file) => {
       if (file instanceof TFile) {
         if (this.isCandidate(file)) {
-          void this.processFile(file);
+          this.scheduleProcess(file);
         } else if (this.paths.has(file.path)) {
           // Qualification lost
           this.tombstone(file.path);
@@ -127,12 +131,19 @@ export class FavoritesIndex {
 
   public forceReindex(): void {
     const files = this.app.vault.getMarkdownFiles();
+    const currentPaths = new Set(files.map((file) => file.path));
     for (const file of files) {
       if (this.isCandidate(file)) {
-        void this.processFile(file);
+        this.scheduleProcess(file);
       } else if (this.paths.has(file.path)) {
         this.tombstone(file.path);
         this.paths.delete(file.path);
+      }
+    }
+    for (const path of this.paths.keys()) {
+      if (!currentPaths.has(path)) {
+        this.tombstone(path);
+        this.paths.delete(path);
       }
     }
     this.notify();
@@ -144,6 +155,30 @@ export class FavoritesIndex {
     if (!cache) return true;
     const val: unknown = cache.frontmatter?.["floor-notes"];
     return typeof val === "number" && Number.isInteger(val) && val > 0;
+  }
+
+  private scheduleProcess(file: TFile): void {
+    this.pending.set(file.path, file);
+    this.drainProcessQueue();
+  }
+
+  private drainProcessQueue(): void {
+    while (this.activeWorkers < FavoritesIndex.MAX_CONCURRENT_PROCESSES && this.pending.size > 0) {
+      const next = this.pending.entries().next().value;
+      if (!next) return;
+      const [path, file] = next;
+      this.pending.delete(path);
+      if (this.processing.has(path)) {
+        continue;
+      }
+      this.processing.add(path);
+      this.activeWorkers++;
+      void this.processFile(file).finally(() => {
+        this.processing.delete(path);
+        this.activeWorkers--;
+        this.drainProcessQueue();
+      });
+    }
   }
 
   private async processFile(file: TFile): Promise<void> {
@@ -207,6 +242,7 @@ export class FavoritesIndex {
   }
 
   private tombstone(path: string): void {
+    this.pending.delete(path);
     const pathInfo = this.paths.get(path);
     if (pathInfo) {
       pathInfo.generation++;

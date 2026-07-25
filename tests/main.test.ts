@@ -102,10 +102,7 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
 
     const remove = vaultHandlers.get("delete")?.at(-1);
     remove?.(file);
-    expect(plugin.registry.getIdentityInfo(token)).toMatchObject({
-      epoch: 2,
-      state: "tombstoned"
-    });
+    expect(plugin.registry.getIdentityInfo(token)).toBeUndefined();
   });
 
   it("routes candidates without mutating the caller's ViewState", async () => {

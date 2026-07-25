@@ -117,31 +117,26 @@ export class FavoritesSidebarView extends ItemView {
     const file = this.app.vault.getAbstractFileByPath(entry.path);
     if (!(file instanceof TFile)) {
       new Notice(t("fileNotFound"));
-      return;
-    }
-
-    if (entry.isStale) {
-      // Re-validate target
-      try {
-        const content = await this.app.vault.read(file);
-        const parseRes = parseThreadDocument(content, file.name);
-        if (parseRes.ok) {
-          const rec = parseRes.doc.records.find((r) => r.id === entry.recordId);
-          if (rec && rec.favorite) {
-            // Re-validated successfully! Proceed to navigation
-            await this.navigateToFileAndRecord(file, entry.recordId);
-            return;
-          }
-        }
-      } catch {
-        // Read failed
-      }
-      new Notice(t("favInvalid"));
       this.index.forceReindex();
       return;
     }
 
-    await this.navigateToFileAndRecord(file, entry.recordId);
+    // The index is eventually consistent, so always validate a clicked record.
+    try {
+      const content = await this.app.vault.read(file);
+      const parseRes = parseThreadDocument(content, file.name);
+      if (parseRes.ok) {
+        const rec = parseRes.doc.records.find((record) => record.id === entry.recordId);
+        if (rec?.favorite) {
+          await this.navigateToFileAndRecord(file, entry.recordId);
+          return;
+        }
+      }
+    } catch {
+      // Treat unreadable files as an invalid favorite and refresh the index.
+    }
+    new Notice(t("favInvalid"));
+    this.index.forceReindex();
   }
 
   private async navigateToFileAndRecord(file: TFile, recordId: string): Promise<void> {
@@ -160,13 +155,12 @@ export class FavoritesSidebarView extends ItemView {
       leaf = workspace.getLeaf(false);
       await leaf.setViewState({
         type: VIEW_TYPE_THREAD,
-        state: { file: file.path }
+        state: { file: file.path, recordId }
       });
-    } else {
-      workspace.setActiveLeaf(leaf, { focus: true });
+      return;
     }
 
-    // Trigger scroll and focus in the explicitly selected thread view.
+    workspace.setActiveLeaf(leaf, { focus: true });
     const view = leaf.view;
     if (view instanceof FloorThreadView) {
       await view.requestGeneration(recordId);

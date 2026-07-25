@@ -95,5 +95,10 @@
   "themeDracula": "Dracula",
   "themeGruvbox": "Gruvbox",
   "themeSolarized": "Solarized",
-  "themeCustom": "Plugin"
+  "themeCustom": "Plugin",
+  "emojiTab": "Emoji",
+  "kaomojiTab": "Kaomoji",
+  "loadMoreReplies": "Load more replies",
+  "diagnosticFormatError": "Invalid floor-note format ({code})",
+  "operationFailed": "The requested change could not be applied."
 }

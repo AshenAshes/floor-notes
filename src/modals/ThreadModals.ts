@@ -38,6 +38,7 @@ export abstract class ThreadEditorModal extends Modal {
   private isSubmitting = false;
   private activeMode: EditorMode = "write";
   private previewGeneration = 0;
+  private editorSession = 0;
   private previewScope: Component | null = null;
   private writePaneEl: HTMLElement | null = null;
   private previewPaneEl: HTMLElement | null = null;
@@ -155,6 +156,7 @@ export abstract class ThreadEditorModal extends Modal {
   }
 
   override onOpen(): void {
+    this.editorSession += 1;
     this.disposePreview();
     this.activeMode = "write";
     this.writePaneEl = null;
@@ -469,17 +471,27 @@ export abstract class ThreadEditorModal extends Modal {
       if (!file) return;
 
       ev.preventDefault();
+      const pasteSession = this.editorSession;
       void (async () => {
         try {
           const buffer = await file.arrayBuffer();
+          if (this.editorSession !== pasteSession || !this.editorView) return;
           const extension = file.name.split(".").pop() || "png";
           const createdFile = await savePastedImageAttachment(this.app, this.filePath, extension, buffer);
+          if (this.editorSession !== pasteSession || !this.editorView) {
+            try {
+              await this.app.fileManager.trashFile(createdFile);
+            } catch (cleanupError) {
+              console.error("Failed to remove attachment from a closed editor:", cleanupError);
+            }
+            return;
+          }
           const markdownLink = this.app.fileManager.generateMarkdownLink(createdFile, this.filePath);
           const mdImage = markdownLink.startsWith("!") ? markdownLink : `!${markdownLink}`;
           insertTextAtCursor(mdImage);
         } catch (err) {
           console.error("Paste image failed:", err);
-          new Notice(t("pasteImageFailed") || "Failed to paste image");
+          new Notice(t("pasteImageFailed"));
         }
       })();
     }, true);
@@ -553,7 +565,10 @@ export abstract class ThreadEditorModal extends Modal {
 
     // The panel is a modal-level overlay so the editor container cannot clip it.
     let emojiPanel: HTMLElement | null = null;
+    let emojiScope: Component | null = null;
     const closeEmojiPanel = (restoreFocus = false) => {
+      emojiScope?.unload();
+      emojiScope = null;
       emojiPanel?.remove();
       emojiPanel = null;
       if (restoreFocus) {
@@ -561,17 +576,26 @@ export abstract class ThreadEditorModal extends Modal {
       }
     };
     const openEmojiPanel = () => {
+      emojiScope = new Component();
+      emojiScope.load();
+      this.renderComponent.register(() => emojiScope?.unload());
       emojiPanel = contentEl.createDiv({ cls: "floor-notes-emoji-panel" });
       const contentRect = contentEl.getBoundingClientRect();
       const triggerRect = btnEmoji.getBoundingClientRect();
+      const gutter = 8;
+      const panelWidth = Math.min(320, Math.max(0, contentRect.width - gutter * 2));
+      const left = Math.max(gutter, Math.min(
+        triggerRect.left - contentRect.left,
+        contentRect.width - panelWidth - gutter
+      ));
       emojiPanel.style.setProperty("--floor-notes-emoji-top", `${triggerRect.bottom - contentRect.top + 4}px`);
-      emojiPanel.style.setProperty("--floor-notes-emoji-left", `${triggerRect.left - contentRect.left}px`);
+      emojiPanel.style.setProperty("--floor-notes-emoji-left", `${left}px`);
 
       // Tab headers
       const tabsContainer = emojiPanel.createDiv({ cls: "floor-notes-emoji-tabs" });
-      const tabEmoji = tabsContainer.createEl("button", { text: "Emoji", cls: "floor-notes-emoji-tab is-active" });
+      const tabEmoji = tabsContainer.createEl("button", { text: t("emojiTab"), cls: "floor-notes-emoji-tab is-active" });
       tabEmoji.type = "button";
-      const tabKaomoji = tabsContainer.createEl("button", { text: "颜文字", cls: "floor-notes-emoji-tab" });
+      const tabKaomoji = tabsContainer.createEl("button", { text: t("kaomojiTab"), cls: "floor-notes-emoji-tab" });
       tabKaomoji.type = "button";
 
       const emojiContent = emojiPanel.createDiv({ cls: "floor-notes-emoji-content" });
@@ -611,7 +635,7 @@ export abstract class ThreadEditorModal extends Modal {
       emojis.forEach((emoji) => {
         const item = emojiGrid.createEl("button", { text: emoji, cls: "floor-notes-emoji-item" });
         item.type = "button";
-        this.renderComponent.registerDomEvent(item, "click", (ev: MouseEvent) => {
+        emojiScope?.registerDomEvent(item, "click", (ev: MouseEvent) => {
           ev.preventDefault();
           insertTextAtCursor(emoji);
           closeEmojiPanel();
@@ -623,7 +647,7 @@ export abstract class ThreadEditorModal extends Modal {
       kaomojis.forEach((kaomoji) => {
         const item = kaomojiGrid.createEl("button", { text: kaomoji, cls: "floor-notes-emoji-item" });
         item.type = "button";
-        this.renderComponent.registerDomEvent(item, "click", (ev: MouseEvent) => {
+        emojiScope?.registerDomEvent(item, "click", (ev: MouseEvent) => {
           ev.preventDefault();
           insertTextAtCursor(escapeKaomojiMarkdown(kaomoji));
           closeEmojiPanel();
@@ -631,7 +655,7 @@ export abstract class ThreadEditorModal extends Modal {
       });
 
       // Tab switching listeners
-      this.renderComponent.registerDomEvent(tabEmoji, "click", (ev: MouseEvent) => {
+      emojiScope?.registerDomEvent(tabEmoji, "click", (ev: MouseEvent) => {
         ev.preventDefault();
         tabEmoji.classList.add("is-active");
         tabKaomoji.classList.remove("is-active");
@@ -639,7 +663,7 @@ export abstract class ThreadEditorModal extends Modal {
         kaomojiContent.classList.add("is-hidden");
       });
 
-      this.renderComponent.registerDomEvent(tabKaomoji, "click", (ev: MouseEvent) => {
+      emojiScope?.registerDomEvent(tabKaomoji, "click", (ev: MouseEvent) => {
         ev.preventDefault();
         tabKaomoji.classList.add("is-active");
         tabEmoji.classList.remove("is-active");
@@ -700,6 +724,8 @@ export abstract class ThreadEditorModal extends Modal {
       updateWordCount();
     };
 
+    let actionBarScope: Component | null = null;
+    this.renderComponent.register(() => actionBarScope?.unload());
     const createActionButton = (container: HTMLElement, text: string, className: string): HTMLButtonElement => {
       const button = container.createEl("button", { text, cls: className });
       button.type = "button";
@@ -707,6 +733,9 @@ export abstract class ThreadEditorModal extends Modal {
     };
 
     updateActionBar = (): void => {
+      actionBarScope?.unload();
+      actionBarScope = new Component();
+      actionBarScope.load();
       sourceActions.empty();
       submitActions.empty();
 
@@ -717,7 +746,7 @@ export abstract class ThreadEditorModal extends Modal {
           isDraftView ? t("original") : t("draft"),
           "floor-notes-editor-action floor-notes-editor-action-source"
         );
-        this.renderComponent.registerDomEvent(sourceButton, "click", () => {
+        actionBarScope?.registerDomEvent(sourceButton, "click", () => {
           replaceEditorText(isDraftView ? originalBody : draftText);
           updateActionBar();
         });
@@ -729,7 +758,7 @@ export abstract class ThreadEditorModal extends Modal {
           t("discard"),
           "floor-notes-editor-action floor-notes-editor-action-discard mod-warning"
         );
-        this.renderComponent.registerDomEvent(discardButton, "click", () => {
+        actionBarScope?.registerDomEvent(discardButton, "click", () => {
           this.clearDraft();
           draftText = "";
           hasSavedDraft = false;
@@ -744,7 +773,7 @@ export abstract class ThreadEditorModal extends Modal {
         t("submit"),
         "floor-notes-editor-action floor-notes-editor-action-submit mod-cta"
       );
-      this.renderComponent.registerDomEvent(submitButton, "click", () => {
+      actionBarScope?.registerDomEvent(submitButton, "click", () => {
         void this.submit(submitButton, warnEl);
       });
     };
@@ -796,13 +825,10 @@ export abstract class ThreadEditorModal extends Modal {
   }
 
   private getSubmissionError(result: Exclude<OperationResult, { readonly type: "applied" } | { readonly type: "no-op" }>): string {
-    if (result.type === "conflict") {
-      return result.reason;
+    if (result.type === "conflict" || result.type === "missing") {
+      return t("operationFailed");
     }
-    if (result.type === "missing") {
-      return result.message ?? t("fileNotFound");
-    }
-    return result.diagnostics.map((diagnostic) => diagnostic.message).join(" ") || t("errorLoadingThread");
+    return result.diagnostics.length > 0 ? t("operationFailed") : t("errorLoadingThread");
   }
 
   protected clearDraft(): void {
@@ -813,6 +839,7 @@ export abstract class ThreadEditorModal extends Modal {
   }
 
   override onClose(): void {
+    this.editorSession += 1;
     this.disposePreview();
     this.writePaneEl = null;
     this.previewPaneEl = null;
@@ -938,11 +965,9 @@ export class DeleteConfirmModal extends Modal {
         this.close();
         return;
       }
-      warnEl.setText(result.type === "conflict"
-        ? result.reason
-        : result.type === "missing"
-          ? result.message ?? t("fileNotFound")
-          : result.diagnostics.map((diagnostic) => diagnostic.message).join(" "));
+      warnEl.setText(result.type === "invalid" && result.diagnostics.length === 0
+        ? t("errorLoadingThread")
+        : t("operationFailed"));
     } catch {
       warnEl.setText(t("errorLoadingThread"));
     } finally {

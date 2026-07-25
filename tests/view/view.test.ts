@@ -4,6 +4,7 @@ import { FloorThreadView } from "../../src/view/FloorThreadView";
 import { FileIdentityRegistry } from "../../src/services/FileIdentityRegistry";
 import { ThreadMutationService } from "../../src/services/ThreadMutationService";
 import { FloorNotesSettingTab } from "../../src/settings/settingsTab";
+import { CreateRecordModal } from "../../src/modals/ThreadModals";
 import { DEFAULT_SETTINGS } from "../../src/settings/types";
 import { setLocale } from "../../src/util/locale";
 import en from "../../src/locales/en.json";
@@ -119,6 +120,75 @@ describe("T-070: Repeated render scope lifecycle tests", () => {
     resolveNextRead?.(validBaseDoc.replace("Body content.", "Updated body content."));
     await pendingGeneration;
     expect(view.contentEl.querySelector(".floor-notes-record-list")).not.toBe(previousList);
+  });
+
+  it("keeps the committed thread visible without a loading message while switching files", async () => {
+    const registry = new FileIdentityRegistry();
+    let resolveSecondRead: ((content: string) => void) | undefined;
+    const secondDoc = validBaseDoc
+      .replace("# Thread Title", "# Second Thread")
+      .replace("Body content.", "Second body content.");
+    const appMock = {
+      vault: {
+        read: vi.fn()
+          .mockResolvedValueOnce(validBaseDoc)
+          .mockImplementationOnce(() => new Promise<string>((resolve) => {
+            resolveSecondRead = resolve;
+          })),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+    const firstFile = mockTFile("first.md", "first.md");
+    const secondFile = mockTFile("second.md", "second.md");
+
+    await view.onLoadFile(firstFile);
+    const previousHeader = view.contentEl.querySelector(".floor-notes-header");
+    const previousList = view.contentEl.querySelector(".floor-notes-record-list");
+
+    await view.onUnloadFile(firstFile);
+    const pendingLoad = view.onLoadFile(secondFile);
+    await vi.waitFor(() => expect(resolveSecondRead).toBeTypeOf("function"));
+
+    expect(view.contentEl.querySelector(".floor-notes-header")).toBe(previousHeader);
+    expect(view.contentEl.querySelector(".floor-notes-record-list")).toBe(previousList);
+    expect(view.contentEl.querySelector(".floor-notes-loading")).toBeNull();
+    expect(view.contentEl.getAttribute("aria-busy")).toBe("true");
+
+    resolveSecondRead?.(secondDoc);
+    await pendingLoad;
+
+    expect(view.contentEl.querySelector<HTMLElement>(".floor-notes-header-title")?.innerText).toBe("Second Thread");
+    expect(view.contentEl.querySelector<HTMLElement>(".floor-notes-body")?.innerText).toBe("Second body content.");
+    expect(view.contentEl.querySelector(".floor-notes-loading")).toBeNull();
+    expect(view.contentEl.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("clears the busy state when a cold thread load fails", async () => {
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: {
+        read: vi.fn().mockRejectedValue(new Error("Read failed")),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+
+    await view.onLoadFile(mockTFile("failed.md", "failed.md"));
+
+    expect(view.contentEl.querySelector(".floor-notes-error-container")).not.toBeNull();
+    expect(view.contentEl.querySelector(".floor-notes-loading")).toBeNull();
+    expect(view.contentEl.hasAttribute("aria-busy")).toBe(false);
   });
 
   it("applies the effective thread view style and groups replies in a dedicated container", async () => {
@@ -391,6 +461,74 @@ Reply body.
     expect(_testState.loadedComponents.size).toBe(0);
     expect(_testState.unloadedComponents.size).toBe(0);
   });
+
+  it("submits an already opened modal but prevents stale modal openings", async () => {
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: { read: vi.fn().mockResolvedValue(validBaseDoc), process: vi.fn() },
+      workspace: { requestSaveLayout: vi.fn() }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const addFloor = vi.spyOn(service, "addFloor").mockResolvedValue({ type: "no-op" });
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+    const file = mockTFile("thread.md", "thread.md");
+    const modalCapture: { value?: CreateRecordModal } = {};
+    const openModal = vi.spyOn(CreateRecordModal.prototype, "open").mockImplementation(function (this: CreateRecordModal) {
+      Reflect.set(modalCapture, "value", this);
+    });
+
+    try {
+      await view.onLoadFile(file);
+      view.contentEl.querySelector<HTMLButtonElement>("button[aria-label='Add floor']")?.click();
+      const modal = modalCapture.value;
+      if (!modal) {
+        throw new Error("Expected the add-floor modal to open.");
+      }
+
+      registry.handleRename(file, "thread.md");
+      const submit = Reflect.get(modal, "onSubmit") as (body: string) => Promise<unknown>;
+      await submit("Saved after a refresh");
+      expect(addFloor).toHaveBeenCalledWith(file, "Saved after a refresh", expect.any(Date));
+
+      view.contentEl.querySelector<HTMLButtonElement>("button[aria-label='Add floor']")?.click();
+      expect(openModal).toHaveBeenCalledOnce();
+    } finally {
+      openModal.mockRestore();
+    }
+  });
+
+  it("does not restore focus to a detached modal trigger", async () => {
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: { read: vi.fn().mockResolvedValue(validBaseDoc), process: vi.fn() },
+      workspace: { requestSaveLayout: vi.fn() }
+    };
+    const service = new ThreadMutationService(appMock as any, registry);
+    const view = new FloorThreadView({ setViewState: vi.fn() } as any, registry, service);
+    view.app = appMock as any;
+    const modalCapture: { value?: CreateRecordModal } = {};
+    const openModal = vi.spyOn(CreateRecordModal.prototype, "open").mockImplementation(function (this: CreateRecordModal) {
+      Reflect.set(modalCapture, "value", this);
+    });
+    document.body.append(view.contentEl);
+
+    try {
+      await view.onLoadFile(mockTFile("thread.md", "thread.md"));
+      const trigger = view.contentEl.querySelector<HTMLButtonElement>("button[aria-label='Add floor']");
+      trigger?.focus();
+      trigger?.click();
+      const focus = vi.spyOn(trigger!, "focus");
+
+      view.contentEl.remove();
+      modalCapture.value?.close();
+
+      expect(focus).not.toHaveBeenCalled();
+    } finally {
+      openModal.mockRestore();
+      view.contentEl.remove();
+    }
+  });
 });
 
 describe("Settings, locales, leaf routing, and commands", () => {
@@ -482,6 +620,49 @@ describe("Settings, locales, leaf routing, and commands", () => {
       expect(container.textContent).toContain(zhCn.settingsTitle);
       expect(container.querySelector<HTMLElement>("label[for='floor-notes-theme-custom'] .floor-notes-theme-option-name")?.innerText).toBe("Plugin");
     });
+  });
+
+  it("restores locale, theme, and mode focus after each settings redraw", async () => {
+    const settings = { ...DEFAULT_SETTINGS, locale: "en" as const, theme: "dracula" as const, mode: "dark" as const };
+    const pluginMock = {
+      settings,
+      updateSettings: vi.fn().mockImplementation(async (nextSettings: Partial<typeof settings>) => {
+        Object.assign(settings, nextSettings);
+      })
+    };
+    const tab = new FloorNotesSettingTab({} as any, pluginMock as any);
+    const container = document.createElement("div");
+    document.body.append(container);
+    tab.containerEl = container;
+    tab.display();
+
+    try {
+      const locale = container.querySelector<HTMLSelectElement>("[data-floor-notes-settings-control='locale']");
+      locale?.focus();
+      locale!.value = "zh-cn";
+      locale!.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect(document.activeElement).toBe(
+        container.querySelector("[data-floor-notes-settings-control='locale']")
+      ));
+
+      const theme = container.querySelector<HTMLInputElement>("[data-floor-notes-settings-control='theme'][value='dracula']");
+      theme?.focus();
+      theme!.checked = true;
+      theme!.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect(document.activeElement).toBe(
+        container.querySelector("[data-floor-notes-settings-control='theme']:checked")
+      ));
+
+      const mode = container.querySelector<HTMLSelectElement>("[data-floor-notes-settings-control='mode']");
+      mode?.focus();
+      mode!.value = "light";
+      mode!.dispatchEvent(new Event("change"));
+      await vi.waitFor(() => expect(document.activeElement).toBe(
+        container.querySelector("[data-floor-notes-settings-control='mode']")
+      ));
+    } finally {
+      container.remove();
+    }
   });
 
   it("disables the color mode selector only for the host-adapted Obsidian theme", () => {

@@ -65,6 +65,51 @@ describe("Glass grid row spans", () => {
     getComputedStyle.mockRestore();
   });
 
+  it("assigns a single-row span to zero-height cards without abandoning measured cards", () => {
+    const recordList = document.createElement("div");
+    const zeroHeightCard = recordList.createDiv();
+    const measuredCard = recordList.createDiv();
+    const setZeroHeightProps = vi.fn();
+    const setMeasuredProps = vi.fn();
+    zeroHeightCard.setCssProps = setZeroHeightProps;
+    measuredCard.setCssProps = setMeasuredProps;
+    Object.defineProperty(zeroHeightCard, "offsetHeight", { configurable: true, value: 0 });
+    Object.defineProperty(measuredCard, "offsetHeight", { configurable: true, value: 80 });
+    const scope = new Component();
+    const ownerWindow = recordList.ownerDocument.defaultView as Window & {
+      ResizeObserver?: unknown;
+    };
+    const previousResizeObserver = ownerWindow.ResizeObserver;
+    const getComputedStyle = vi.spyOn(ownerWindow, "getComputedStyle").mockReturnValue({
+      columnGap: "0",
+      getPropertyValue: () => "1"
+    } as unknown as CSSStyleDeclaration);
+
+    class ResizeObserverMock {
+      public constructor(_callback: ResizeObserverCallback) {}
+      public disconnect(): void {}
+      public observe(): void {}
+    }
+
+    Object.defineProperty(ownerWindow, "ResizeObserver", {
+      configurable: true,
+      value: ResizeObserverMock
+    });
+
+    enableGlassGridLayout(recordList, scope);
+
+    expect(setZeroHeightProps).toHaveBeenCalledWith({ "--floor-notes-glass-row-span": "1" });
+    expect(setMeasuredProps).toHaveBeenCalledWith({ "--floor-notes-glass-row-span": "80" });
+    expect(recordList.classList.contains(GLASS_MASONRY_READY_CLASS)).toBe(true);
+
+    scope.unload();
+    Object.defineProperty(ownerWindow, "ResizeObserver", {
+      configurable: true,
+      value: previousResizeObserver
+    });
+    getComputedStyle.mockRestore();
+  });
+
   it("keeps the natural CSS grid when ResizeObserver is unavailable", () => {
     const recordList = document.createElement("div");
     const card = recordList.createDiv();

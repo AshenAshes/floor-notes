@@ -38,7 +38,6 @@
   "lineLabel": "行",
   "colLabel": "列",
   "emptyConfigError": "该笔记未配置为楼层贴子。",
-  "loadingThread": "正在加载楼层贴子...",
   "fileDeletedError": "该文件已被删除。",
   "sortLabel": "排序",
   "stale": "已失效",

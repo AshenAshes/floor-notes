@@ -2,6 +2,8 @@ export class SerialTaskQueue {
   private readonly queue: (() => Promise<void>)[] = [];
   private running = false;
 
+  public constructor(private readonly onIdle?: (queue: SerialTaskQueue) => void) {}
+
   public add<T>(task: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.queue.push(async () => {
@@ -28,7 +30,11 @@ export class SerialTaskQueue {
       // Errors are handled inside the task wrapper
     } finally {
       this.running = false;
-      void this.runNext();
+      if (this.queue.length > 0) {
+        void this.runNext();
+      } else {
+        this.onIdle?.(this);
+      }
     }
   }
 }

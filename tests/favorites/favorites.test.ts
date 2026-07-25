@@ -112,8 +112,7 @@ describe("FavoritesIndex tests", () => {
     // Initial build
     index.init();
 
-    // Since index calls processFile asynchronously, wait a tick
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await vi.waitFor(() => expect(index.getAllFavorites()).toHaveLength(1));
 
     const favorites = index.getAllFavorites();
     expect(favorites.length).toBe(1);
@@ -125,7 +124,7 @@ describe("FavoritesIndex tests", () => {
     fileContents.set("thread1.md", invalidDoc);
     app._triggerVault("modify", file1);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await vi.waitFor(() => expect(index.getAllFavorites()[0]?.isStale).toBe(true));
 
     const favoritesAfterError = index.getAllFavorites();
     // Stale fallback: keeps the last-known entries but marks them as stale
@@ -136,7 +135,7 @@ describe("FavoritesIndex tests", () => {
     fileContents.set("thread1.md", validDoc);
     app._triggerVault("modify", file1);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await vi.waitFor(() => expect(index.getAllFavorites()[0]?.isStale).toBe(false));
 
     const favoritesAfterSuccess = index.getAllFavorites();
     expect(favoritesAfterSuccess.length).toBe(1);
@@ -149,7 +148,7 @@ describe("FavoritesIndex tests", () => {
 
     app._triggerVault("rename", file1Renamed, "thread1.md");
 
-    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    await vi.waitFor(() => expect(index.getAllFavorites()[0]?.path).toBe("renamed.md"));
 
     const favoritesAfterRename = index.getAllFavorites();
     expect(favoritesAfterRename.length).toBe(1);

@@ -4,6 +4,8 @@ import { applyThemeClasses, supportsExplicitMode, THEME_OPTIONS } from "../theme
 import { t } from "../util/locale";
 import { THREAD_VIEW_STYLES, ThreadViewStyle } from "./types";
 
+type RedrawnControl = "locale" | "theme" | "mode";
+
 export class FloorNotesSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -14,6 +16,7 @@ export class FloorNotesSettingTab extends PluginSettingTab {
 
   public display(): void {
     const { containerEl } = this;
+    const focusedControl = this.getFocusedControl();
     containerEl.empty();
 
     new Setting(containerEl)
@@ -48,6 +51,7 @@ export class FloorNotesSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName(t("settingsLocale"))
       .addDropdown((dropdown) => {
+        dropdown.selectEl.dataset.floorNotesSettingsControl = "locale";
         dropdown
           .addOption("auto", t("auto"))
           .addOption("en", "English")
@@ -79,6 +83,7 @@ export class FloorNotesSettingTab extends PluginSettingTab {
         }
       });
       input.checked = this.plugin.settings.theme === theme.id;
+      input.dataset.floorNotesSettingsControl = "theme";
       input.addEventListener("change", () => {
         if (!input.checked) {
           return;
@@ -127,6 +132,7 @@ export class FloorNotesSettingTab extends PluginSettingTab {
     }
 
     modeSetting.addDropdown((dropdown) => {
+      dropdown.selectEl.dataset.floorNotesSettingsControl = "mode";
       dropdown
         .addOption("auto", hasExplicitMode ? t("auto") : t("settingsModeDescObsidian"))
         .addOption("light", t("light"))
@@ -164,6 +170,32 @@ export class FloorNotesSettingTab extends PluginSettingTab {
             await this.plugin.updateSettings({ autoOpenThreadView: value });
           });
       });
+
+    this.restoreFocus(focusedControl);
+  }
+
+  private getFocusedControl(): RedrawnControl | null {
+    const activeElement = this.containerEl.ownerDocument.activeElement;
+    if (!(activeElement instanceof HTMLElement) || !this.containerEl.contains(activeElement)) {
+      return null;
+    }
+
+    const control = activeElement.closest<HTMLElement>("[data-floor-notes-settings-control]");
+    const controlName = control?.dataset.floorNotesSettingsControl;
+    return controlName === "locale" || controlName === "theme" || controlName === "mode"
+      ? controlName
+      : null;
+  }
+
+  private restoreFocus(control: RedrawnControl | null): void {
+    if (!control) {
+      return;
+    }
+
+    const selector = control === "theme"
+      ? `[data-floor-notes-settings-control="${control}"]:checked`
+      : `[data-floor-notes-settings-control="${control}"]`;
+    this.containerEl.querySelector<HTMLElement>(selector)?.focus();
   }
 
   private async updateTheme(theme: (typeof THEME_OPTIONS)[number]["id"]): Promise<void> {

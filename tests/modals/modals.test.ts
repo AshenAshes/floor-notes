@@ -569,6 +569,32 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     modal.close();
   });
 
+  it("only unwraps formatting when the selection contains both marker copies", () => {
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(app, "Create floor", "test-file.md", "format-marker-boundary", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+
+    const editorView = (modal as unknown as { editorView: EditorView | null }).editorView;
+    if (!editorView) {
+      throw new Error("Expected the CodeMirror editor to be present.");
+    }
+    const boldButton = modal.contentEl.querySelector<HTMLButtonElement>(".btn-bold");
+    editorView.dispatch({
+      changes: { from: 0, to: 0, insert: "**" },
+      selection: { anchor: 0, head: 2 }
+    });
+    boldButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(editorView?.state.doc.toString()).toBe("******");
+
+    editorView?.dispatch({
+      changes: { from: 0, to: editorView.state.doc.length, insert: "**bold**" },
+      selection: { anchor: 0, head: 8 }
+    });
+    boldButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(editorView?.state.doc.toString()).toBe("bold");
+    modal.close();
+  });
+
   it("preserves meaningful leading, trailing, and indented Markdown when submitting", async () => {
     const app = new obsidian.App();
     const onSubmit = vi.fn().mockResolvedValue(noOp);

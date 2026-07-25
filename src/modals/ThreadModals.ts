@@ -493,7 +493,11 @@ export abstract class ThreadEditorModal extends Modal {
       
       const selectedText = state.doc.sliceString(from, to);
       
-      if (selectedText.startsWith(marker) && selectedText.endsWith(marker)) {
+      if (
+        selectedText.length >= len * 2 &&
+        selectedText.startsWith(marker) &&
+        selectedText.endsWith(marker)
+      ) {
         const unwrapped = selectedText.slice(len, -len);
         this.editorView.dispatch({
           changes: { from, to, insert: unwrapped },

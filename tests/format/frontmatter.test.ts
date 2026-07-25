@@ -75,8 +75,24 @@ describe("T-054/T-053: frontmatter semantic validation", () => {
     const text = "---\nfloor-notes-sort: asc\n---\n";
     const { bomSpan, lines, terminalEolSpan } = parsePhysicalLines(text);
     const { frontmatter, diagnostics } = parseFrontmatter(text, bomSpan, lines, terminalEolSpan);
-    
+
     expect(frontmatter).toBeNull();
     expect(diagnostics.length).toBeGreaterThan(0);
+  });
+
+  const bom = String.fromCharCode(0xfeff);
+  it.each([
+    ["LF", `${bom}---\nfloor-notes: 1\n---\n`, "---\nfloor-notes: 1\n---\n", "---\nfloor-notes: 1\n---"],
+    ["CRLF", `${bom}---\r\nfloor-notes: 1\r\n---\r\n`, "---\r\nfloor-notes: 1\r\n---\r\n", "---\r\nfloor-notes: 1\r\n---"],
+    ["no terminal EOL", `${bom}---\nfloor-notes: 1\n---`, "---\nfloor-notes: 1\n---", "---\nfloor-notes: 1\n---"]
+  ])("should parse BOM-prefixed frontmatter with %s", (_kind, text, lexicalText, ownedText) => {
+    const { bomSpan, lines, terminalEolSpan } = parsePhysicalLines(text);
+    const { frontmatter, diagnostics } = parseFrontmatter(text, bomSpan, lines, terminalEolSpan);
+
+    expect(lines[0]!.contentSpan.start).toBe(1);
+    expect(diagnostics).toHaveLength(0);
+    expect(frontmatter?.version).toBe(1);
+    expect(text.substring(frontmatter!.lexicalSpan.start, frontmatter!.lexicalSpan.end)).toBe(lexicalText);
+    expect(text.substring(frontmatter!.ownedSpan.start, frontmatter!.ownedSpan.end)).toBe(ownedText);
   });
 });

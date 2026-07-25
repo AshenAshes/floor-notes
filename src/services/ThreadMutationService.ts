@@ -47,7 +47,11 @@ export class ThreadMutationService {
 
     let queue = this.queues.get(token);
     if (!queue) {
-      queue = new SerialTaskQueue();
+      queue = new SerialTaskQueue((idleQueue) => {
+        if (this.queues.get(token) === idleQueue) {
+          this.queues.delete(token);
+        }
+      });
       this.queues.set(token, queue);
     }
 

@@ -29,6 +29,22 @@ describe("Task 4: Pure source-span operations tests", () => {
     }
   });
 
+  it("appends a Floor ending in an EOL without doubling a missing terminal EOL", () => {
+    const docText = validBaseDoc.slice(0, -1);
+    const parseRes = parseThreadDocument(docText, "thread.md");
+    expect(parseRes.ok).toBe(true);
+    if (parseRes.ok) {
+      const res = ops.addFloor(parseRes.doc, "New Floor Body\n", new Date(2026, 6, 16, 15, 35, 0));
+      expect(res.type).toBe("applied");
+      if (res.type === "applied") {
+        const floorId = res.newDoc.records[1]!.id;
+        expect(res.newText).toBe(
+          `${docText}\n\n## Floor\n[id:: ${floorId}]\n[date:: 2026-07-16 15:35:00]\n\nNew Floor Body\n`
+        );
+      }
+    }
+  });
+
   it("T-019 / T-020: AddReply to last record and between records", () => {
     const parseRes = parseThreadDocument(validBaseDoc, "thread.md");
     expect(parseRes.ok).toBe(true);
@@ -38,6 +54,23 @@ describe("Task 4: Pure source-span operations tests", () => {
       if (res.type === "applied") {
         expect(res.newDoc.records.length).toBe(2);
         expect(res.newDoc.records[1]!.type).toBe("reply");
+      }
+    }
+  });
+
+  it("appends a last Reply ending in an EOL without doubling a missing terminal EOL", () => {
+    const docText = validBaseDoc.slice(0, -1);
+    const parseRes = parseThreadDocument(docText, "thread.md");
+    expect(parseRes.ok).toBe(true);
+    if (parseRes.ok) {
+      const floorId = parseRes.doc.records[0]!.id;
+      const res = ops.addReply(parseRes.doc, floorId, "Reply Body\n", new Date(2026, 6, 16, 15, 36, 0));
+      expect(res.type).toBe("applied");
+      if (res.type === "applied") {
+        const replyId = res.newDoc.records[1]!.id;
+        expect(res.newText).toBe(
+          `${docText}\n\n### Reply\n[id:: ${replyId}]\n[date:: 2026-07-16 15:36:00]\n\nReply Body\n`
+        );
       }
     }
   });
@@ -69,6 +102,23 @@ describe("Task 4: Pure source-span operations tests", () => {
       expect(resConflict.type).toBe("conflict");
     }
   });
+
+  it.each(["Updated Body", "Updated Body\n"])(
+    "repairs a missing terminal EOL when the edited body is %j",
+    (newBody) => {
+      const docText = validBaseDoc.slice(0, -1);
+      const parseRes = parseThreadDocument(docText, "thread.md");
+      expect(parseRes.ok).toBe(true);
+      if (parseRes.ok) {
+        const floor = parseRes.doc.records[0]!;
+        const res = ops.editFloor(parseRes.doc, floor.id, "Floor 1 body.", newBody);
+        expect(res.type).toBe("applied");
+        if (res.type === "applied") {
+          expect(res.newText).toBe(docText.replace("Floor 1 body.", "Updated Body\n"));
+        }
+      }
+    }
+  );
 
   it("T-024 / T-025: SetFavorite on and off", () => {
     const parseRes = parseThreadDocument(validBaseDoc, "thread.md");
@@ -136,6 +186,64 @@ Reply body.
       expect(resDelFloor.type).toBe("applied");
       if (resDelFloor.type === "applied") {
         expect(resDelFloor.newDoc.records.length).toBe(0);
+      }
+    }
+  });
+
+  it("does not double an existing EOL after deleting from a document without one", () => {
+    const docText = `---
+floor-notes: 1
+---
+## Floor
+[id:: floor-20260716-153012-abcde123]
+[date:: 2026-07-16 15:30:12]
+
+Floor body.`;
+    const parseRes = parseThreadDocument(docText, "thread.md");
+    expect(parseRes.ok).toBe(true);
+    if (parseRes.ok) {
+      const floor = parseRes.doc.records[0]!;
+      const revision = docText.substring(floor.fullSpan.start, floor.fullSpan.end);
+      const res = ops.deleteFloor(parseRes.doc, floor.id, [{ id: floor.id, revision }]);
+      expect(res.type).toBe("applied");
+      if (res.type === "applied") {
+        expect(res.newText).toBe("---\nfloor-notes: 1\n---\n");
+      }
+    }
+  });
+
+  it("adds one EOL after deleting the last Reply from a document without one", () => {
+    const docText = `---
+floor-notes: 1
+---
+## Floor
+[id:: floor-20260716-153012-abcde123]
+[date:: 2026-07-16 15:30:12]
+
+Floor body.
+
+### Reply
+[id:: reply-20260716-153112-xyz09876]
+[date:: 2026-07-16 15:31:12]
+
+Reply body.`;
+    const parseRes = parseThreadDocument(docText, "thread.md");
+    expect(parseRes.ok).toBe(true);
+    if (parseRes.ok) {
+      const reply = parseRes.doc.records[1]!;
+      const revision = docText.substring(reply.fullSpan.start, reply.fullSpan.end);
+      const res = ops.deleteReply(parseRes.doc, reply.id, revision);
+      expect(res.type).toBe("applied");
+      if (res.type === "applied") {
+        expect(res.newText).toBe(`---
+floor-notes: 1
+---
+## Floor
+[id:: floor-20260716-153012-abcde123]
+[date:: 2026-07-16 15:30:12]
+
+Floor body.
+`);
       }
     }
   });

@@ -38,7 +38,6 @@
   "lineLabel": "Line",
   "colLabel": "Col",
   "emptyConfigError": "This note is not configured as a floor thread.",
-  "loadingThread": "Loading floor thread...",
   "fileDeletedError": "This file has been deleted.",
   "sortLabel": "Sort",
   "stale": "stale",

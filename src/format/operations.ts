@@ -68,7 +68,7 @@ export function addFloor(doc: ParsedThreadDocument, body: string, date: Date): O
 
   let terminalAppend = "";
   if (doc.terminalEolSpan.start === doc.terminalEolSpan.end) {
-    if (normalizedBody.endsWith("\n") || normalizedBody.endsWith("\r")) {
+    if (!normalizedBody.endsWith("\n") && !normalizedBody.endsWith("\r")) {
       terminalAppend = preferredEol;
     }
   }
@@ -140,7 +140,7 @@ export function addReply(doc: ParsedThreadDocument, targetFloorId: string, body:
 
     let terminalAppend = "";
     if (doc.terminalEolSpan.start === doc.terminalEolSpan.end) {
-      if (normalizedBody.endsWith("\n") || normalizedBody.endsWith("\r")) {
+      if (!normalizedBody.endsWith("\n") && !normalizedBody.endsWith("\r")) {
         terminalAppend = preferredEol;
       }
     }
@@ -222,7 +222,7 @@ function editRecordBody(
   const isLast = doc.records[doc.records.length - 1]?.id === targetId;
   let terminalAppend = "";
   if (isLast && doc.terminalEolSpan.start === doc.terminalEolSpan.end) {
-    if (normalizedNew.endsWith("\n") || normalizedNew.endsWith("\r")) {
+    if (!normalizedNew.endsWith("\n") && !normalizedNew.endsWith("\r")) {
       terminalAppend = preferredEol;
     }
   }
@@ -310,7 +310,7 @@ export function setFavorite(doc: ParsedThreadDocument, floorId: string, desired:
 function checkTerminalEolOnDeletion(newText: string, doc: ParsedThreadDocument): string {
   if (doc.terminalEolSpan.start === doc.terminalEolSpan.end) {
     const preferredEol = getPreferredEol(doc);
-    if (newText.endsWith("\n") || newText.endsWith("\r")) {
+    if (!newText.endsWith("\n") && !newText.endsWith("\r")) {
       return newText + preferredEol;
     }
   }

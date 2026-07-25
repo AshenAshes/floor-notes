@@ -9,14 +9,14 @@ export interface FrontmatterParseResult {
 
 export function parseFrontmatter(
   rawText: string,
-  bomSpan: Span | null,
+  _bomSpan: Span | null,
   lines: readonly PhysicalLine[],
   terminalEolSpan: Span
 ): FrontmatterParseResult {
   const diagnostics: Diagnostic[] = [];
 
-  // Check if first line starts with "---"
-  const firstLineIndex = bomSpan ? 1 : 0;
+  // parsePhysicalLines excludes a leading BOM from line content, so the opening line is always lines[0].
+  const firstLineIndex = 0;
   const firstLine = lines[firstLineIndex];
   if (!firstLine) {
     return { frontmatter: null, diagnostics };

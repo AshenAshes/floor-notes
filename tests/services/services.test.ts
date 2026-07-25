@@ -64,9 +64,15 @@ describe("SerialTaskQueue sequential execution", () => {
   it("should execute tasks sequentially", async () => {
     const queue = new SerialTaskQueue();
     const results: number[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstStarted = false;
 
     const p1 = queue.add(async () => {
-      await new Promise(r => window.setTimeout(r, 50));
+      firstStarted = true;
+      await firstGate;
       results.push(1);
       return 1;
     });
@@ -76,8 +82,12 @@ describe("SerialTaskQueue sequential execution", () => {
       return 2;
     });
 
+    await vi.waitFor(() => expect(firstStarted).toBe(true));
+    expect(results).toEqual([]);
+    releaseFirst();
+
     await Promise.all([p1, p2]);
-    expect(results).toEqual([1, 2]); // Even though p1 takes longer, it must finish first
+    expect(results).toEqual([1, 2]);
   });
 });
 
@@ -103,6 +113,58 @@ describe("ThreadMutationService Vault processes", () => {
     }
 
     expect(listener).toHaveBeenCalledTimes(1);
+    const queues = (service as unknown as { queues: Map<string, SerialTaskQueue> }).queues;
+    await vi.waitFor(() => expect(queues.size).toBe(0));
+  });
+
+  it("keeps a queue while consecutive mutations are pending and removes it once idle", async () => {
+    const registry = new FileIdentityRegistry();
+    let content = baseDoc;
+    let processCount = 0;
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let firstStarted = false;
+    let secondStarted = false;
+    const vault = {
+      process: vi.fn(async (_file: TFile, callback: (data: string) => string | Promise<string>) => {
+        if (processCount++ === 0) {
+          firstStarted = true;
+          await firstGate;
+        } else {
+          secondStarted = true;
+          await secondGate;
+        }
+        content = await callback(content);
+        return content;
+      })
+    };
+    const app = { vault } as unknown as App;
+    const service = new ThreadMutationService(app, registry);
+    const file = mockTFile("notes/my-thread.md", "my-thread.md");
+    const token = registry.getOrCreateIdentity(file);
+    const queues = (service as unknown as { queues: Map<string, SerialTaskQueue> }).queues;
+
+    const first = service.addFloor(file, "First queued floor", new Date());
+    await vi.waitFor(() => expect(firstStarted).toBe(true));
+    const activeQueue = queues.get(token);
+    expect(activeQueue).toBeDefined();
+
+    const second = service.addFloor(file, "Second queued floor", new Date());
+    expect(queues.get(token)).toBe(activeQueue);
+
+    releaseFirst();
+    await vi.waitFor(() => expect(secondStarted).toBe(true));
+    expect(queues.get(token)).toBe(activeQueue);
+
+    releaseSecond();
+    await Promise.all([first, second]);
+    await vi.waitFor(() => expect(queues.size).toBe(0));
   });
 
   it("persists a view style through the queued mutation path", async () => {

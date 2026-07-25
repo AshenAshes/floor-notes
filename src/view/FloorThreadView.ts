@@ -94,6 +94,12 @@ export class FloorThreadView extends FileView {
     this.unloadRenderScope();
   }
 
+  private restoreTriggerFocus(trigger: HTMLElement | null): void {
+    if (trigger?.isConnected) {
+      trigger.focus();
+    }
+  }
+
   private unloadScope(scope: Component | null): null {
     if (!scope) {
       return null;
@@ -130,6 +136,7 @@ export class FloorThreadView extends FileView {
 
     this.generation++;
     const thisGen = this.generation;
+    this.contentEl.setAttribute("aria-busy", "true");
     const file = this.file;
     const sourcePath = file.path;
     const identityToken = this.registry.getOrCreateIdentity(file);
@@ -145,7 +152,6 @@ export class FloorThreadView extends FileView {
       this.contentEl.empty();
       this.announcerEl = this.contentEl.createDiv({ cls: "floor-notes-announcer" });
       this.announcerEl.setAttribute("aria-live", "polite");
-      this.renderLoading();
     }
 
     let content: string;
@@ -195,6 +201,7 @@ export class FloorThreadView extends FileView {
         return;
       }
 
+      this.contentEl.removeAttribute("aria-busy");
       const previousScope = this.currentRenderScope;
       this.currentRenderScope = scope;
       if (this.pendingRenderScope === scope) {
@@ -222,11 +229,8 @@ export class FloorThreadView extends FileView {
       info.epoch === identityEpoch;
   }
 
-  private renderLoading(): void {
-    this.contentEl.createDiv({ cls: "floor-notes-loading", text: t("loadingThread") });
-  }
-
   private renderDeletedState(): void {
+    this.contentEl.removeAttribute("aria-busy");
     this.contentEl.empty();
     const delEl = this.contentEl.createDiv({ cls: "floor-notes-deleted-container" });
     delEl.createEl("p", { text: t("fileDeletedError") });
@@ -244,6 +248,7 @@ export class FloorThreadView extends FileView {
 
     this.fallbackInProgress = true;
     this.generation++;
+    this.contentEl.removeAttribute("aria-busy");
     this.unloadAllRenderScopes();
     this.contentEl.empty();
     this.announcerEl = null;
@@ -260,6 +265,7 @@ export class FloorThreadView extends FileView {
   }
 
   private renderGenericError(message: string): void {
+    this.contentEl.removeAttribute("aria-busy");
     this.unloadAllRenderScopes();
     this.contentEl.empty();
     const errEl = this.contentEl.createDiv({ cls: "floor-notes-error-container" });
@@ -310,13 +316,10 @@ export class FloorThreadView extends FileView {
           sourcePath,
           "new-floor",
           async (body) => {
-            if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-              return { type: "missing", message: t("fileNotFound") };
-            }
             return this.mutationService.addFloor(file, body, new Date());
           },
           () => {
-            if (triggerButton) triggerButton.focus();
+            this.restoreTriggerFocus(triggerButton);
           },
           this.settings,
           doc.effectiveViewStyle
@@ -366,13 +369,10 @@ export class FloorThreadView extends FileView {
           sourcePath,
           "new-floor",
           async (body) => {
-            if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-              return { type: "missing", message: t("fileNotFound") };
-            }
             return this.mutationService.addFloor(file, body, new Date());
           },
           () => {
-            if (triggerButton) triggerButton.focus();
+            this.restoreTriggerFocus(triggerButton);
           },
           this.settings,
           doc.effectiveViewStyle
@@ -411,13 +411,10 @@ export class FloorThreadView extends FileView {
         sourcePath,
         recId,
         async (body) => {
-          if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-            return { type: "missing", message: t("fileNotFound") };
-          }
           return this.mutationService.addReply(file, recId, body, new Date());
         },
         () => {
-          if (triggerButton) triggerButton.focus();
+          this.restoreTriggerFocus(triggerButton);
         },
         this.settings,
         doc.effectiveViewStyle
@@ -436,15 +433,12 @@ export class FloorThreadView extends FileView {
         record.id,
         oldBodyText,
         async (newBody) => {
-          if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-            return { type: "missing", message: t("fileNotFound") };
-          }
           return isFloor
             ? this.mutationService.editFloor(file, record.id, oldBodyText, newBody)
             : this.mutationService.editReply(file, record.id, oldBodyText, newBody);
         },
         () => {
-          if (triggerButton) triggerButton.focus();
+          this.restoreTriggerFocus(triggerButton);
         },
         this.settings,
         doc.effectiveViewStyle
@@ -483,13 +477,10 @@ export class FloorThreadView extends FileView {
           t("deleteFloor"),
           t("deleteFloorConfirm"),
           async () => {
-            if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-              return { type: "missing", message: t("fileNotFound") };
-            }
             return this.mutationService.deleteFloor(file, record.id, expectedRevisions);
           },
           () => {
-            if (triggerButton) triggerButton.focus();
+            this.restoreTriggerFocus(triggerButton);
           },
           this.settings,
           doc.effectiveViewStyle
@@ -502,13 +493,10 @@ export class FloorThreadView extends FileView {
           t("deleteReply"),
           t("deleteReplyConfirm"),
           async () => {
-            if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
-              return { type: "missing", message: t("fileNotFound") };
-            }
             return this.mutationService.deleteReply(file, record.id, revision);
           },
           () => {
-            if (triggerButton) triggerButton.focus();
+            this.restoreTriggerFocus(triggerButton);
           },
           this.settings,
           doc.effectiveViewStyle

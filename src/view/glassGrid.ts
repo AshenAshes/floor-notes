@@ -46,18 +46,13 @@ export function enableGlassGridLayout(
     const cards = Array.from(recordListEl.children).filter((child): child is HTMLElement =>
       child.instanceOf(ownerWindow.HTMLElement)
     );
-    const heights = cards.map((card) => card.offsetHeight);
-    if (heights.length === 0 || heights.some((height) => height <= 0)) {
+    if (cards.length === 0) {
       return;
     }
 
-    for (const [index, card] of cards.entries()) {
-      const height = heights[index];
-      if (height === undefined) {
-        continue;
-      }
+    for (const card of cards) {
       card.setCssProps({
-        "--floor-notes-glass-row-span": String(getGlassGridRowSpan(height, rowHeight, cardGap))
+        "--floor-notes-glass-row-span": String(getGlassGridRowSpan(card.offsetHeight, rowHeight, cardGap))
       });
     }
     recordListEl.classList.add(GLASS_MASONRY_READY_CLASS);

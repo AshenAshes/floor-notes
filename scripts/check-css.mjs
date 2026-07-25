@@ -43,7 +43,9 @@ function check() {
     failed = true;
   }
 
-  const recordsSource = fs.readFileSync("./src/styles/records.css", "utf-8");
+  const recordsSource = fs
+    .readFileSync("./src/styles/records.css", "utf-8")
+    .replace(/\r\n?/g, "\n");
   if (/(?:#[0-9a-f]{3,8}\b|rgba?\s*\()/i.test(recordsSource)) {
     console.error("Error: Thread view styles must use theme tokens instead of literal colors.");
     failed = true;

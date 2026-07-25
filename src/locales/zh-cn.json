@@ -95,5 +95,10 @@
   "themeDracula": "Dracula",
   "themeGruvbox": "Gruvbox",
   "themeSolarized": "Solarized",
-  "themeCustom": "Plugin"
+  "themeCustom": "Plugin",
+  "emojiTab": "表情",
+  "kaomojiTab": "颜文字",
+  "loadMoreReplies": "加载更多回复",
+  "diagnosticFormatError": "楼层笔记格式无效（{code}）",
+  "operationFailed": "无法应用请求的更改。"
 }

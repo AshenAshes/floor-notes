@@ -95,7 +95,22 @@
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-floor::after,
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-floor::before,
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-reply::before,
-  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-date {
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-date,
+  .floor-notes-thread-view.floor-notes-view-style-glass .floor-notes-floor-group,
+  .floor-notes-favorites-view button.floor-notes-favorite-item {
     transition: none;
+  }
+
+  .floor-notes-thread-view.floor-notes-view-style-glass .floor-notes-floor-group:hover,
+  .floor-notes-favorites-view button.floor-notes-favorite-item:hover,
+  .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-record-action:hover {
+    transform: none;
+  }
+
+  .floor-notes-floor:hover .floor-notes-meta-right,
+  .floor-notes-floor:focus-within .floor-notes-meta-right,
+  .floor-notes-reply:hover .floor-notes-meta-right,
+  .floor-notes-reply:focus-within .floor-notes-meta-right {
+    transform: translateY(calc(-50% + 2px));
   }
 }

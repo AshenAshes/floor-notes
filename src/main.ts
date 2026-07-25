@@ -1,7 +1,14 @@
 import { Plugin, WorkspaceLeaf, TFile, Notice, ViewState, FileView } from "obsidian";
 import { parsePhysicalLines } from "./format/physicalLines";
 import { parseFrontmatter } from "./format/frontmatter";
-import { FloorNotesSettings, DEFAULT_SETTINGS, isThreadViewStyle } from "./settings/types";
+import {
+  FloorNotesSettings,
+  DEFAULT_SETTINGS,
+  isDefaultSortOrder,
+  isLocale,
+  isPreferredNewline,
+  isThreadViewStyle
+} from "./settings/types";
 import { isFloorNotesMode, isFloorNotesTheme } from "./theme";
 import { FloorNotesSettingTab } from "./settings/settingsTab";
 import { setLocale, t } from "./util/locale";
@@ -22,31 +29,51 @@ export default class FloorNotesPlugin extends Plugin {
     // 1. Synchronously initialize all fields to avoid race conditions during async loadData yielding
     this.settings = Object.assign({}, DEFAULT_SETTINGS);
     this.registry = new FileIdentityRegistry();
-    this.mutationService = new ThreadMutationService(this.app, this.registry);
+    this.mutationService = new ThreadMutationService(
+      this.app,
+      this.registry,
+      () => this.settings.preferredNewline
+    );
     this.favoritesIndex = new FavoritesIndex(this.app, this);
     this.favoritesIndex.init();
 
-    // 2. Load settings and normalize persisted theme, mode, and legacy view-style values.
+    // 2. Load settings from the untrusted persistence boundary and retain only valid fields.
     const loadedData = (await this.loadData()) as Record<string, unknown> | null;
-    const { replyStyle, defaultViewStyle, theme, mode, ...otherSettings } = loadedData || {};
-    const resolvedTheme = isFloorNotesTheme(theme) ? theme : DEFAULT_SETTINGS.theme;
-    const resolvedMode = isFloorNotesMode(mode) ? mode : DEFAULT_SETTINGS.mode;
-    const resolvedViewStyle = isThreadViewStyle(defaultViewStyle)
-      ? defaultViewStyle
-      : isThreadViewStyle(replyStyle)
-        ? replyStyle
+    const source = loadedData && typeof loadedData === "object" ? loadedData : {};
+    const resolvedTheme = isFloorNotesTheme(source.theme) ? source.theme : DEFAULT_SETTINGS.theme;
+    const resolvedMode = isFloorNotesMode(source.mode) ? source.mode : DEFAULT_SETTINGS.mode;
+    const resolvedViewStyle = isThreadViewStyle(source.defaultViewStyle)
+      ? source.defaultViewStyle
+      : isThreadViewStyle(source.replyStyle)
+        ? source.replyStyle
         : DEFAULT_SETTINGS.defaultViewStyle;
-    const shouldPersistNormalizedSettings =
-      replyStyle !== undefined ||
-      (theme !== undefined && theme !== resolvedTheme) ||
-      (mode !== undefined && mode !== resolvedMode) ||
-      (defaultViewStyle !== undefined && defaultViewStyle !== resolvedViewStyle);
-
-    Object.assign(this.settings, otherSettings, {
+    const normalizedSettings: FloorNotesSettings = {
+      preferredNewline: isPreferredNewline(source.preferredNewline)
+        ? source.preferredNewline
+        : DEFAULT_SETTINGS.preferredNewline,
+      defaultSortOrder: isDefaultSortOrder(source.defaultSortOrder)
+        ? source.defaultSortOrder
+        : DEFAULT_SETTINGS.defaultSortOrder,
+      locale: isLocale(source.locale) ? source.locale : DEFAULT_SETTINGS.locale,
       theme: resolvedTheme,
       mode: resolvedMode,
+      autoOpenThreadView: typeof source.autoOpenThreadView === "boolean"
+        ? source.autoOpenThreadView
+        : DEFAULT_SETTINGS.autoOpenThreadView,
       defaultViewStyle: resolvedViewStyle
-    });
+    };
+    const persistedKeys = [
+      "preferredNewline", "defaultSortOrder", "locale", "theme", "mode", "autoOpenThreadView", "defaultViewStyle"
+    ];
+    const shouldPersistNormalizedSettings =
+      source.replyStyle !== undefined ||
+      Object.keys(source).some((key) => !persistedKeys.includes(key)) ||
+      persistedKeys.some((key) =>
+        Object.prototype.hasOwnProperty.call(source, key) &&
+        source[key] !== normalizedSettings[key as keyof FloorNotesSettings]
+      );
+
+    Object.assign(this.settings, normalizedSettings);
     setLocale(this.settings.locale);
     if (shouldPersistNormalizedSettings) {
       await this.saveData(this.settings);
@@ -289,12 +316,8 @@ export default class FloorNotesPlugin extends Plugin {
 
     await leaf.setViewState({
       type: VIEW_TYPE_THREAD,
-      state: { file: file.path }
+      state: { file: file.path, recordId }
     });
-
-    if (leaf.view instanceof FloorThreadView && recordId) {
-      await leaf.view.requestGeneration(recordId);
-    }
   }
 
   private getActiveFloorViewFile(): { file: TFile; configured: boolean } | null {

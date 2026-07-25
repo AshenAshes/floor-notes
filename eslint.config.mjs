@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       "node_modules/**",
+      ".claude/**",
       "main.js",
       "styles.css",
       "esbuild.config.mjs",

@@ -35,7 +35,7 @@ Body.
 `;
 
 describe("T-035: FileIdentityRegistry state changes", () => {
-  it("should assign stable identities and handle rename/delete tombstoning", () => {
+  it("should assign stable identities and release deleted metadata", () => {
     const registry = new FileIdentityRegistry();
     const file = mockTFile("notes/my-thread.md", "my-thread.md");
 
@@ -54,9 +54,8 @@ describe("T-035: FileIdentityRegistry state changes", () => {
 
     // Delete
     registry.handleDelete(file);
-    const infoDeleted = registry.getIdentityInfo(token);
-    expect(infoDeleted!.state).toBe("tombstoned");
-    expect(infoDeleted!.epoch).toBe(2);
+    expect(registry.getIdentityInfo(token)).toBeUndefined();
+    expect(registry.getIdentityByPath("notes/renamed-thread.md")).toBeUndefined();
   });
 });
 

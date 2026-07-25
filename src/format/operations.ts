@@ -4,7 +4,7 @@ import { isUnicodeWhitespace } from "../util/unicodeWhitespace";
 import { parseThreadDocument } from "./parser";
 import { findRecordSeparatorSpan } from "./separators";
 import { ParsedThreadDocument, ParsedRecord, Diagnostic } from "./types";
-import { ThreadViewStyle } from "../settings/types";
+import { PreferredNewline, ThreadViewStyle } from "../settings/types";
 
 export type OperationResult =
   | { readonly type: "applied"; readonly newText: string; readonly newDoc: ParsedThreadDocument }
@@ -13,7 +13,10 @@ export type OperationResult =
   | { readonly type: "invalid"; readonly diagnostics: readonly Diagnostic[] }
   | { readonly type: "missing"; readonly message: string };
 
-export function getPreferredEol(doc: ParsedThreadDocument): string {
+export function getPreferredEol(doc: ParsedThreadDocument, preference: PreferredNewline = "auto"): string {
+  if (preference === "LF") return "\n";
+  if (preference === "CRLF") return "\r\n";
+
   let lfCount = 0;
   let crlfCount = 0;
   for (const line of doc.physicalLines) {
@@ -31,7 +34,12 @@ export function normalizeEols(text: string, eol: string): string {
 }
 
 // 1. AddFloor
-export function addFloor(doc: ParsedThreadDocument, body: string, date: Date): OperationResult {
+export function addFloor(
+  doc: ParsedThreadDocument,
+  body: string,
+  date: Date,
+  preference: PreferredNewline = "auto"
+): OperationResult {
   let isEmpty = true;
   for (let i = 0; i < body.length; i++) {
     if (!isUnicodeWhitespace(body[i]!)) {
@@ -56,7 +64,7 @@ export function addFloor(doc: ParsedThreadDocument, body: string, date: Date): O
     return { type: "conflict", reason: "Failed to generate unique Floor ID after 16 attempts due to collision." };
   }
 
-  const preferredEol = getPreferredEol(doc);
+  const preferredEol = getPreferredEol(doc, preference);
   const normalizedBody = normalizeEols(body, preferredEol);
 
   const metaBlock = `[id:: ${floorId}]${preferredEol}[date:: ${formatLocalDate(date)}]${preferredEol}${preferredEol}`;
@@ -88,7 +96,13 @@ export function addFloor(doc: ParsedThreadDocument, body: string, date: Date): O
 }
 
 // 2. AddReply
-export function addReply(doc: ParsedThreadDocument, targetFloorId: string, body: string, date: Date): OperationResult {
+export function addReply(
+  doc: ParsedThreadDocument,
+  targetFloorId: string,
+  body: string,
+  date: Date,
+  preference: PreferredNewline = "auto"
+): OperationResult {
   let isEmpty = true;
   for (let i = 0; i < body.length; i++) {
     if (!isUnicodeWhitespace(body[i]!)) {
@@ -126,7 +140,7 @@ export function addReply(doc: ParsedThreadDocument, targetFloorId: string, body:
     return { type: "conflict", reason: "Failed to generate unique Reply ID after 16 attempts due to collision." };
   }
 
-  const preferredEol = getPreferredEol(doc);
+  const preferredEol = getPreferredEol(doc, preference);
   const normalizedBody = normalizeEols(body, preferredEol);
   const metaBlock = `[id:: ${replyId}]${preferredEol}[date:: ${formatLocalDate(date)}]${preferredEol}${preferredEol}`;
   const recordText = `### Reply${preferredEol}${metaBlock}${normalizedBody}`;
@@ -180,7 +194,8 @@ function editRecordBody(
   targetId: string,
   expectedBody: string,
   newBody: string,
-  allowedType: "floor" | "reply"
+  allowedType: "floor" | "reply",
+  preference: PreferredNewline = "auto"
 ): OperationResult {
   let isEmpty = true;
   for (let i = 0; i < newBody.length; i++) {
@@ -203,7 +218,7 @@ function editRecordBody(
   }
 
   const currentBody = doc.rawText.substring(rec.bodySpan.start, rec.bodySpan.end);
-  const preferredEol = getPreferredEol(doc);
+  const preferredEol = getPreferredEol(doc, preference);
   const normalizedNew = normalizeEols(newBody, preferredEol);
   const normalizedExpected = normalizeEols(expectedBody, preferredEol);
   const normalizedCurrent = normalizeEols(currentBody, preferredEol);
@@ -242,17 +257,34 @@ function editRecordBody(
 }
 
 // 3. EditFloor
-export function editFloor(doc: ParsedThreadDocument, targetId: string, expectedBody: string, newBody: string): OperationResult {
-  return editRecordBody(doc, targetId, expectedBody, newBody, "floor");
+export function editFloor(
+  doc: ParsedThreadDocument,
+  targetId: string,
+  expectedBody: string,
+  newBody: string,
+  preference: PreferredNewline = "auto"
+): OperationResult {
+  return editRecordBody(doc, targetId, expectedBody, newBody, "floor", preference);
 }
 
 // 4. EditReply
-export function editReply(doc: ParsedThreadDocument, targetId: string, expectedBody: string, newBody: string): OperationResult {
-  return editRecordBody(doc, targetId, expectedBody, newBody, "reply");
+export function editReply(
+  doc: ParsedThreadDocument,
+  targetId: string,
+  expectedBody: string,
+  newBody: string,
+  preference: PreferredNewline = "auto"
+): OperationResult {
+  return editRecordBody(doc, targetId, expectedBody, newBody, "reply", preference);
 }
 
 // 5. SetFavorite
-export function setFavorite(doc: ParsedThreadDocument, floorId: string, desired: boolean): OperationResult {
+export function setFavorite(
+  doc: ParsedThreadDocument,
+  floorId: string,
+  desired: boolean,
+  preference: PreferredNewline = "auto"
+): OperationResult {
   const floor = doc.records.find(r => r.id === floorId);
   if (!floor) {
     return { type: "missing", message: `Floor '${floorId}' not found.` };
@@ -274,7 +306,9 @@ export function setFavorite(doc: ParsedThreadDocument, floorId: string, desired:
       return { type: "conflict", reason: "Date field is missing from Floor metadata." };
     }
     const dateLine = doc.physicalLines[dateField.lineIndex]!;
-    const eolText = dateLine.eolSpan ? doc.rawText.substring(dateLine.eolSpan.start, dateLine.eolSpan.end) : "\n";
+    const eolText = dateLine.eolSpan
+      ? doc.rawText.substring(dateLine.eolSpan.start, dateLine.eolSpan.end)
+      : getPreferredEol(doc, preference);
 
     const insertOffset = dateLine.eolSpan ? dateLine.eolSpan.end : dateLine.contentSpan.end;
     const leftText = doc.rawText.substring(0, insertOffset);
@@ -307,9 +341,13 @@ export function setFavorite(doc: ParsedThreadDocument, floorId: string, desired:
 }
 
 // Helper for terminal EOL repair during deletion
-function checkTerminalEolOnDeletion(newText: string, doc: ParsedThreadDocument): string {
+function checkTerminalEolOnDeletion(
+  newText: string,
+  doc: ParsedThreadDocument,
+  preference: PreferredNewline = "auto"
+): string {
   if (doc.terminalEolSpan.start === doc.terminalEolSpan.end) {
-    const preferredEol = getPreferredEol(doc);
+    const preferredEol = getPreferredEol(doc, preference);
     if (!newText.endsWith("\n") && !newText.endsWith("\r")) {
       return newText + preferredEol;
     }
@@ -318,7 +356,12 @@ function checkTerminalEolOnDeletion(newText: string, doc: ParsedThreadDocument):
 }
 
 // 6. DeleteReply
-export function deleteReply(doc: ParsedThreadDocument, targetId: string, expectedRevision: string): OperationResult {
+export function deleteReply(
+  doc: ParsedThreadDocument,
+  targetId: string,
+  expectedRevision: string,
+  preference: PreferredNewline = "auto"
+): OperationResult {
   const replyIdx = doc.records.findIndex(r => r.id === targetId);
   if (replyIdx === -1) {
     return { type: "missing", message: `Reply '${targetId}' not found.` };
@@ -347,7 +390,7 @@ export function deleteReply(doc: ParsedThreadDocument, targetId: string, expecte
     newText = doc.rawText.substring(0, prevRec.fullSpan.end) + doc.rawText.substring(reply.fullSpan.end);
   }
 
-  newText = checkTerminalEolOnDeletion(newText, doc);
+  newText = checkTerminalEolOnDeletion(newText, doc, preference);
 
   const parseRes = parseThreadDocument(newText, doc.fileName);
   if (!parseRes.ok) {
@@ -365,7 +408,8 @@ export function deleteReply(doc: ParsedThreadDocument, targetId: string, expecte
 export function deleteFloor(
   doc: ParsedThreadDocument,
   targetId: string,
-  expectedRevisions: readonly { readonly id: string; readonly revision: string }[]
+  expectedRevisions: readonly { readonly id: string; readonly revision: string }[],
+  preference: PreferredNewline = "auto"
 ): OperationResult {
   const floorIdx = doc.records.findIndex(r => r.id === targetId);
   if (floorIdx === -1) {
@@ -421,7 +465,7 @@ export function deleteFloor(
     newText = doc.rawText.substring(0, firstRec.fullSpan.start) + doc.rawText.substring(nextRec.headingSpan.start);
   }
 
-  newText = checkTerminalEolOnDeletion(newText, doc);
+  newText = checkTerminalEolOnDeletion(newText, doc, preference);
 
   const parseRes = parseThreadDocument(newText, doc.fileName);
   if (!parseRes.ok) {
@@ -436,7 +480,11 @@ export function deleteFloor(
 }
 
 // 8. SetSortOrder
-export function setViewStyle(doc: ParsedThreadDocument, desired: ThreadViewStyle): OperationResult {
+export function setViewStyle(
+  doc: ParsedThreadDocument,
+  desired: ThreadViewStyle,
+  preference: PreferredNewline = "auto"
+): OperationResult {
   const frontmatter = doc.frontmatter;
   if (!frontmatter) {
     return { type: "conflict", reason: "Frontmatter is missing." };
@@ -463,7 +511,9 @@ export function setViewStyle(doc: ParsedThreadDocument, desired: ThreadViewStyle
     }
 
     const versionLine = doc.physicalLines[versionLineIdx]!;
-    const eolText = versionLine.eolSpan ? doc.rawText.substring(versionLine.eolSpan.start, versionLine.eolSpan.end) : "\n";
+    const eolText = versionLine.eolSpan
+      ? doc.rawText.substring(versionLine.eolSpan.start, versionLine.eolSpan.end)
+      : getPreferredEol(doc, preference);
     const insertOffset = versionLine.eolSpan ? versionLine.eolSpan.end : versionLine.contentSpan.end;
     newText =
       doc.rawText.substring(0, insertOffset) +
@@ -483,7 +533,11 @@ export function setViewStyle(doc: ParsedThreadDocument, desired: ThreadViewStyle
 }
 
 // 9. SetSortOrder
-export function setSortOrder(doc: ParsedThreadDocument, desired: "asc" | "desc"): OperationResult {
+export function setSortOrder(
+  doc: ParsedThreadDocument,
+  desired: "asc" | "desc",
+  preference: PreferredNewline = "auto"
+): OperationResult {
   const frontmatter = doc.frontmatter;
   if (!frontmatter) {
     return { type: "conflict", reason: "Frontmatter is missing." };
@@ -512,7 +566,9 @@ export function setSortOrder(doc: ParsedThreadDocument, desired: "asc" | "desc")
     }
 
     const versionLine = doc.physicalLines[versionLineIdx]!;
-    const eolText = versionLine.eolSpan ? doc.rawText.substring(versionLine.eolSpan.start, versionLine.eolSpan.end) : "\n";
+    const eolText = versionLine.eolSpan
+      ? doc.rawText.substring(versionLine.eolSpan.start, versionLine.eolSpan.end)
+      : getPreferredEol(doc, preference);
     const insertOffset = versionLine.eolSpan ? versionLine.eolSpan.end : versionLine.contentSpan.end;
 
     newText =

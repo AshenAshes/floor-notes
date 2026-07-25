@@ -38,33 +38,34 @@ export class FileIdentityRegistry {
   }
 
   public handleRename(file: TFile, oldPath: string): void {
-    const token = this.fileIdentities.get(file);
-    if (token) {
-      const info = this.identityInfo.get(token);
-      if (info) {
-        this.identityInfo.set(token, {
-          path: file.path,
-          epoch: info.epoch + 1,
-          state: info.state
-        });
-        this.pathIdentities.delete(oldPath);
-        this.pathIdentities.set(file.path, token);
-      }
+    const token = this.fileIdentities.get(file) ?? this.pathIdentities.get(oldPath);
+    if (!token) return;
+
+    const info = this.identityInfo.get(token);
+    if (!info) return;
+
+    const replacedToken = this.pathIdentities.get(file.path);
+    if (replacedToken && replacedToken !== token) {
+      this.identityInfo.delete(replacedToken);
     }
+    this.fileIdentities.set(file, token);
+    this.identityInfo.set(token, {
+      path: file.path,
+      epoch: info.epoch + 1,
+      state: "active"
+    });
+    this.pathIdentities.delete(oldPath);
+    this.pathIdentities.set(file.path, token);
   }
 
   public handleDelete(file: TFile): void {
-    const token = this.fileIdentities.get(file);
-    if (token) {
-      const info = this.identityInfo.get(token);
-      if (info) {
-        this.identityInfo.set(token, {
-          path: info.path,
-          epoch: info.epoch + 1,
-          state: "tombstoned"
-        });
-        this.pathIdentities.delete(info.path);
-      }
+    const token = this.fileIdentities.get(file) ?? this.pathIdentities.get(file.path);
+    if (!token) return;
+
+    const info = this.identityInfo.get(token);
+    if (info) {
+      this.pathIdentities.delete(info.path);
+      this.identityInfo.delete(token);
     }
   }
 }

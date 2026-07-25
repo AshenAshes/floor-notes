@@ -62,8 +62,9 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     modal.open();
 
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
+    let saveBtn = getSubmitButton(modal);
     textarea._onChange("   ");
+    saveBtn = getSubmitButton(modal);
     saveBtn.click();
 
     expect(onSubmit).not.toHaveBeenCalled();
@@ -71,6 +72,7 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     expect(warnEl.textContent).not.toBe("");
 
     textarea._onChange("My valid floor content");
+    saveBtn = getSubmitButton(modal);
     saveBtn.click();
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("My valid floor content"));
@@ -86,8 +88,8 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     modal.open();
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
     textarea._onChange("Updated content");
+    const saveBtn = getSubmitButton(modal);
     saveBtn.click();
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("Updated content"));
@@ -102,13 +104,13 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     modal.open();
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
     textarea._onChange("Updated reply");
+    const saveBtn = getSubmitButton(modal);
     saveBtn.click();
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith("Updated reply"));
     const warnEl = modal.contentEl.querySelector(".floor-notes-modal-warn") as HTMLElement;
-    await vi.waitFor(() => expect(warnEl.textContent).toBe("The reply changed elsewhere."));
+    await vi.waitFor(() => expect(warnEl.textContent).toBe("The requested change could not be applied."));
     expect(onClose).not.toHaveBeenCalled();
     const editorView = (modal as unknown as { editorView: EditorView | null }).editorView;
     expect(editorView?.state.doc.toString()).toBe("Updated reply");
@@ -124,14 +126,14 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     modal.open();
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
     const warnEl = modal.contentEl.querySelector(".floor-notes-modal-warn") as HTMLElement;
     textarea._onChange("Draft that must remain");
+    const saveBtn = getSubmitButton(modal);
 
     saveBtn.click();
-    await vi.waitFor(() => expect(warnEl.textContent).toBe("Invalid record."));
+    await vi.waitFor(() => expect(warnEl.textContent).toBe("The requested change could not be applied."));
     saveBtn.click();
-    await vi.waitFor(() => expect(warnEl.textContent).toBe("File no longer exists."));
+    await vi.waitFor(() => expect(warnEl.textContent).toBe("The requested change could not be applied."));
 
     expect(onClose).not.toHaveBeenCalled();
     expect(app.loadLocalStorage("floor-notes-draft-new-test-file.md-new-floor-failure")).toBe("Draft that must remain");
@@ -147,8 +149,8 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     modal.open();
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
     textarea._onChange("One request only");
+    const saveBtn = getSubmitButton(modal);
     saveBtn.click();
     saveBtn.click();
 
@@ -603,8 +605,8 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     const body = "\n  **Keep this indentation**\n\n";
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
-    const saveBtn = getSubmitButton(modal);
     textarea._onChange(body);
+    const saveBtn = getSubmitButton(modal);
     saveBtn.click();
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith(body));
@@ -932,7 +934,7 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     const warnEl = modal.contentEl.querySelector(".floor-notes-modal-warn") as HTMLElement;
-    await vi.waitFor(() => expect(warnEl.textContent).toBe("The floor changed elsewhere."));
+    await vi.waitFor(() => expect(warnEl.textContent).toBe("The requested change could not be applied."));
     expect(onClose).not.toHaveBeenCalled();
   });
 });

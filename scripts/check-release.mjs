@@ -29,11 +29,11 @@ function check() {
   const releaseTag = process.env.RELEASE_TAG;
 
   if (releaseTag) {
-    const validReleaseTag = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+    const validReleaseTag = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
     if (!validReleaseTag.test(releaseTag)) {
-      console.error(`Error: RELEASE_TAG must use the exact vX.Y.Z format. Found "${releaseTag}".`);
+      console.error(`Error: RELEASE_TAG must use the exact X.Y.Z format. Found "${releaseTag}".`);
       failed = true;
-    } else if (releaseTag !== `v${pkgVersion}`) {
+    } else if (releaseTag !== pkgVersion) {
       console.error(`Error: RELEASE_TAG (${releaseTag}) does not match package.json version (${pkgVersion}).`);
       failed = true;
     }

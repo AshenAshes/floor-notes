@@ -37,31 +37,23 @@ export class FavoritesIndex {
       }
     };
 
-    // 1. Initial build: screen candidate files
-    const files = this.app.vault.getMarkdownFiles();
-    for (const file of files) {
-      if (this.isCandidate(file)) {
-        this.scheduleProcess(file);
-      }
+    // Index only files that Obsidian presents to the plugin. There is no initial
+    // vault-wide scan, so enabling the plugin never exposes every vault path.
+    const activeFile = this.app.workspace.getActiveFile();
+    if (activeFile instanceof TFile) {
+      this.observeFile(activeFile);
     }
 
-    // 2. Register Vault events
+    // Register Vault events
     register(this.app.vault.on("create", (file) => {
-      if (file instanceof TFile && this.isCandidate(file)) {
-        this.scheduleProcess(file);
+      if (file instanceof TFile) {
+        this.observeFile(file);
       }
     }));
 
     register(this.app.vault.on("modify", (file) => {
       if (file instanceof TFile) {
-        if (this.isCandidate(file)) {
-          this.scheduleProcess(file);
-        } else if (this.paths.has(file.path)) {
-          // Qualification lost
-          this.tombstone(file.path);
-          this.paths.delete(file.path);
-          this.notify();
-        }
+        this.observeFile(file);
       }
     }));
 
@@ -97,17 +89,18 @@ export class FavoritesIndex {
       }
     }));
 
-    // 3. Register MetadataCache events
+    // Metadata cache changes can qualify a file without a vault modify event.
     register(this.app.metadataCache.on("changed", (file) => {
       if (file instanceof TFile) {
-        if (this.isCandidate(file)) {
-          this.scheduleProcess(file);
-        } else if (this.paths.has(file.path)) {
-          // Qualification lost
-          this.tombstone(file.path);
-          this.paths.delete(file.path);
-          this.notify();
-        }
+        this.observeFile(file);
+      }
+    }));
+
+    // Open files are the primary discovery path for notes that already existed
+    // before the plugin was enabled. This event exposes only the opened file.
+    register(this.app.workspace.on("file-open", (file) => {
+      if (file instanceof TFile) {
+        this.observeFile(file);
       }
     }));
   }
@@ -130,18 +123,14 @@ export class FavoritesIndex {
   }
 
   public forceReindex(): void {
-    const files = this.app.vault.getMarkdownFiles();
-    const currentPaths = new Set(files.map((file) => file.path));
-    for (const file of files) {
-      if (this.isCandidate(file)) {
+    // Reconcile only paths previously observed by this index. A complete vault
+    // scan would disclose every file path and is intentionally not performed.
+    const knownPaths = new Set([...this.paths.keys(), ...this.pending.keys()]);
+    for (const path of knownPaths) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile && this.isCandidate(file)) {
         this.scheduleProcess(file);
-      } else if (this.paths.has(file.path)) {
-        this.tombstone(file.path);
-        this.paths.delete(file.path);
-      }
-    }
-    for (const path of this.paths.keys()) {
-      if (!currentPaths.has(path)) {
+      } else {
         this.tombstone(path);
         this.paths.delete(path);
       }
@@ -155,6 +144,19 @@ export class FavoritesIndex {
     if (!cache) return true;
     const val: unknown = cache.frontmatter?.["floor-notes"];
     return typeof val === "number" && Number.isInteger(val) && val > 0;
+  }
+
+  private observeFile(file: TFile): void {
+    if (this.isCandidate(file)) {
+      this.scheduleProcess(file);
+      return;
+    }
+
+    if (this.paths.has(file.path) || this.pending.has(file.path)) {
+      this.tombstone(file.path);
+      this.paths.delete(file.path);
+      this.notify();
+    }
   }
 
   private scheduleProcess(file: TFile): void {

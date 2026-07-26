@@ -55,10 +55,14 @@ const mockApp = (
 ) => {
   const vaultListeners: Record<string, ((...args: any[]) => void)[]> = {};
   const cacheListeners: Record<string, ((...args: any[]) => void)[]> = {};
+  const workspaceListeners: Record<string, ((...args: any[]) => void)[]> = {};
 
   return {
     vault: {
-      getMarkdownFiles: () => markdownFiles,
+      getMarkdownFiles: vi.fn(() => markdownFiles),
+      getAbstractFileByPath: vi.fn((path: string) =>
+        markdownFiles.find((file) => file.path === path) ?? null
+      ),
       read: vi.fn(async (file: any) => {
         const content = fileContents.get(file.path);
         if (content === undefined) {
@@ -71,6 +75,15 @@ const mockApp = (
           vaultListeners[event] = [];
         }
         vaultListeners[event].push(cb);
+      }
+    },
+    workspace: {
+      getActiveFile: vi.fn(() => null),
+      on: (event: string, cb: (...args: any[]) => void) => {
+        if (!workspaceListeners[event]) {
+          workspaceListeners[event] = [];
+        }
+        workspaceListeners[event].push(cb);
       }
     },
     metadataCache: {
@@ -87,6 +100,9 @@ const mockApp = (
     },
     _triggerCache: (event: string, ...args: any[]) => {
       cacheListeners[event]?.forEach((cb) => cb(...args));
+    },
+    _triggerWorkspace: (event: string, ...args: any[]) => {
+      workspaceListeners[event]?.forEach((cb) => cb(...args));
     }
   } as any;
 };
@@ -109,8 +125,10 @@ describe("FavoritesIndex tests", () => {
     const app = mockApp(markdownFiles, fileCaches, fileContents);
     const index = new FavoritesIndex(app);
 
-    // Initial build
+    // Existing files are discovered only when opened, never through a vault-wide scan.
     index.init();
+    app._triggerWorkspace("file-open", file1);
+    expect(app.vault.getMarkdownFiles).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(index.getAllFavorites()).toHaveLength(1));
 

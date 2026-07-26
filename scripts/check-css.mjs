@@ -62,8 +62,8 @@ function check() {
   const paperDateRule = recordsSource.match(
     /\.floor-notes-thread-view\.floor-notes-view-style-paper \.floor-notes-date\s*\{([\s\S]*?)\n\}/
   );
-  if (!paperDateRule || !/clip-path\s*:/.test(paperDateRule[1])) {
-    console.error("Error: Paper dates must remain visually hidden without removing their DOM nodes.");
+  if (!paperDateRule || !/clip\s*:\s*rect\s*\(/.test(paperDateRule[1])) {
+    console.error("Error: Paper dates must use the broadly supported legacy clip rectangle for visual hiding.");
     failed = true;
   }
 

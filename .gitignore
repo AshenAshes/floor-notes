@@ -15,4 +15,6 @@ styles.css
 skills-lock.json
 scratch/
 
-docs/
+docs/*
+!docs/images/
+!docs/images/*.png

@@ -13,6 +13,24 @@ const makeFile = (path: string): obsidian.TFile => {
   return file;
 };
 
+const searchableThreadDoc = `---
+floor-notes: 1
+---
+# Searchable thread
+
+## Floor
+[id:: floor-20260729-120000-aaaabbbb]
+[date:: 2026-07-29 12:00:00]
+
+First floor body.
+
+## Floor
+[id:: floor-20260729-120100-ccccdddd]
+[date:: 2026-07-29 12:01:00]
+
+Second floor searchable body.
+`;
+
 const createAppMock = (options?: {
   readonly fileCache?: (file: obsidian.TFile) => unknown;
   readonly cachedRead?: (file: obsidian.TFile) => Promise<string>;
@@ -127,6 +145,72 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
       state: { file: file.path, mode: "source" }
     });
     expect(leaf.setViewStateCalls[0]?.state.state).not.toBe(state.state);
+  });
+
+  it("routes an Obsidian search match to the floor containing its source offset", async () => {
+    const file = makeFile("thread.md");
+    const leaf = new (obsidian.WorkspaceLeaf as any)();
+    const matchStart = searchableThreadDoc.indexOf("searchable body");
+    const eState = {
+      match: {
+        score: 1,
+        matches: [[matchStart, matchStart + "searchable".length]]
+      }
+    };
+    const { app } = createAppMock({
+      mostRecentLeaf: leaf,
+      fileCache: (candidate) => candidate === file ? { frontmatter: { "floor-notes": 1 } } : null,
+      cachedRead: async () => searchableThreadDoc
+    });
+    app.vault.getAbstractFileByPath.mockImplementation((path: string) => path === file.path ? file : null);
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    await plugin.onload();
+
+    await leaf.setViewState(
+      { type: "markdown", state: { file: file.path } },
+      eState
+    );
+
+    expect(leaf.setViewStateCalls).toEqual([{
+      state: {
+        type: VIEW_TYPE_THREAD,
+        state: {
+          file: file.path,
+          recordId: "floor-20260729-120100-ccccdddd"
+        }
+      },
+      eState
+    }]);
+  });
+
+  it("focuses a search line inside the currently open floor view without switching to Markdown", async () => {
+    const file = makeFile("thread.md");
+    const leaf = new (obsidian.WorkspaceLeaf as any)();
+    const requestGeneration = vi.fn().mockResolvedValue(undefined);
+    const view = Object.create(FloorThreadView.prototype) as FloorThreadView;
+    Object.assign(view, { file, requestGeneration });
+    leaf.view = view;
+    const secondFloorLine = searchableThreadDoc
+      .slice(0, searchableThreadDoc.indexOf("Second floor searchable body."))
+      .split("\n").length - 1;
+    const { app } = createAppMock({
+      mostRecentLeaf: leaf,
+      fileCache: (candidate) => candidate === file ? { frontmatter: { "floor-notes": 1 } } : null,
+      cachedRead: async () => searchableThreadDoc
+    });
+    app.vault.getAbstractFileByPath.mockImplementation((path: string) => path === file.path ? file : null);
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    await plugin.onload();
+
+    await leaf.setViewState(
+      { type: "markdown", state: { file: file.path } },
+      { line: secondFloorLine }
+    );
+
+    expect(requestGeneration).toHaveBeenCalledWith("floor-20260729-120100-ccccdddd");
+    expect(leaf.setViewStateCalls).toHaveLength(0);
   });
 
   it("does not let an older cached-read probe replace a newer leaf route", async () => {

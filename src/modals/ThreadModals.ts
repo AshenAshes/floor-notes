@@ -382,8 +382,14 @@ export abstract class ThreadEditorModal extends Modal {
       ".cm-cursor, .cm-dropCursor": {
         borderLeftColor: "var(--text-accent)",
       },
-      ".cm-selectionBackground, ::selection": {
-        backgroundColor: "color-mix(in srgb, var(--text-accent) 25%, transparent)",
+      ".cm-selectionBackground": {
+        backgroundColor: "var(--text-selection)",
+      },
+      "&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+        backgroundColor: "var(--text-selection)",
+      },
+      "::selection": {
+        color: "var(--text-normal)",
       },
       ".cm-activeLine": {
         backgroundColor: "transparent",

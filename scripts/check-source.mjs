@@ -74,6 +74,19 @@ function check() {
     }
   }
 
+  const editorSource = fs.readFileSync("./src/modals/ThreadModals.ts", "utf-8");
+  const focusedSelectionThemeRule = editorSource.match(
+    /"&\.cm-editor\.cm-focused > \.cm-scroller > \.cm-selectionLayer \.cm-selectionBackground":\s*\{([\s\S]*?)\n\s*\},/
+  );
+  if (
+    !focusedSelectionThemeRule?.[1].includes('backgroundColor: "var(--text-selection)"')
+  ) {
+    console.error(
+      "Error: The focused CodeMirror selection layer needs a higher-specificity .cm-editor override using --text-selection."
+    );
+    failed = true;
+  }
+
   if (failed) {
     process.exit(1);
   }

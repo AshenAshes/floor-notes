@@ -1,6 +1,7 @@
 import { Plugin, WorkspaceLeaf, TFile, Notice, ViewState, FileView } from "obsidian";
 import { parsePhysicalLines } from "./format/physicalLines";
 import { parseFrontmatter } from "./format/frontmatter";
+import { parseThreadDocument } from "./format/parser";
 import {
   FloorNotesSettings,
   DEFAULT_SETTINGS,
@@ -17,6 +18,10 @@ import { ThreadMutationService } from "./services/ThreadMutationService";
 import { FloorThreadView, VIEW_TYPE_THREAD } from "./view/FloorThreadView";
 import { FavoritesIndex } from "./services/FavoritesIndex";
 import { FavoritesSidebarView, VIEW_TYPE_FAVORITES } from "./view/FavoritesSidebarView";
+import {
+  hasSourceNavigationState,
+  resolveRecordIdFromNavigationState
+} from "./view/sourceNavigation";
 
 
 export default class FloorNotesPlugin extends Plugin {
@@ -214,8 +219,7 @@ export default class FloorNotesPlugin extends Plugin {
       if (
         filePath === null ||
         !filePath.endsWith(".md") ||
-        stateData?.bypassThreadView === true ||
-        (isSameFile && this.view?.getViewType() === VIEW_TYPE_THREAD)
+        stateData?.bypassThreadView === true
       ) {
         return originalSetViewState.apply(this, [state, eState]);
       }
@@ -226,12 +230,16 @@ export default class FloorNotesPlugin extends Plugin {
       }
 
       let isCandidate = plugin.app.metadataCache.getFileCache(file)?.frontmatter?.["floor-notes"] === 1;
+      const hasSourceNavigation = hasSourceNavigationState(eState);
+      let content: string | null = null;
 
-      if (!isCandidate) {
+      if (!isCandidate || hasSourceNavigation) {
         try {
-          const content = await plugin.app.vault.cachedRead(file);
-          const { bomSpan, lines, terminalEolSpan } = parsePhysicalLines(content);
-          isCandidate = parseFrontmatter(content, bomSpan, lines, terminalEolSpan).frontmatter?.version === 1;
+          content = await plugin.app.vault.cachedRead(file);
+          if (!isCandidate) {
+            const { bomSpan, lines, terminalEolSpan } = parsePhysicalLines(content);
+            isCandidate = parseFrontmatter(content, bomSpan, lines, terminalEolSpan).frontmatter?.version === 1;
+          }
         } catch {
           // A failed read leaves the file on the regular Markdown route.
         }
@@ -246,10 +254,32 @@ export default class FloorNotesPlugin extends Plugin {
         return originalSetViewState.apply(this, [state, eState]);
       }
 
+      let recordId: string | undefined;
+      if (hasSourceNavigation && content !== null) {
+        const parseResult = parseThreadDocument(content, file.name, {
+          defaultSortOrder: plugin.settings.defaultSortOrder,
+          defaultViewStyle: plugin.settings.defaultViewStyle
+        });
+        if (parseResult.ok) {
+          recordId = resolveRecordIdFromNavigationState(parseResult.doc, eState);
+        }
+      }
+
+      if (isSameFile && this.view instanceof FloorThreadView) {
+        if (recordId) {
+          await this.view.requestGeneration(recordId);
+          return;
+        }
+        return originalSetViewState.apply(this, [state, eState]);
+      }
+
       const threadState: ViewState = {
         ...state,
         type: VIEW_TYPE_THREAD,
-        state: { ...stateData }
+        state: {
+          ...stateData,
+          ...(recordId ? { recordId } : {})
+        }
       };
       return originalSetViewState.apply(this, [threadState, eState]);
     };

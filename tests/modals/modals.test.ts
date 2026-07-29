@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditorView } from "@codemirror/view";
 import * as obsidian from "obsidian";
 import { CreateRecordModal, DeleteConfirmModal, EditRecordModal } from "../../src/modals/ThreadModals";
+import { DEFAULT_SETTINGS } from "../../src/settings/types";
 
 const { _testState } = obsidian as any;
 const noOp = { type: "no-op" } as const;
@@ -528,6 +529,32 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
 
     expect(editorView?.state.selection.main.from).toBe(0);
     expect(editorView?.state.selection.main.to).toBe(8);
+    modal.close();
+  });
+
+  it("keeps selected editor text readable in dark mode", () => {
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(
+      app,
+      "Create floor",
+      "test-file.md",
+      "dark-selection-contrast",
+      vi.fn().mockResolvedValue(noOp),
+      undefined,
+      { ...DEFAULT_SETTINGS, theme: "obsidian", mode: "dark" }
+    );
+    modal.open();
+
+    const codeMirrorStyles = Array.from(modal.modalEl.ownerDocument.querySelectorAll("style"))
+      .map((style) => style.textContent ?? "")
+      .join("\n");
+    const focusedSelectionRules = Array.from(codeMirrorStyles.matchAll(
+      /\.cm-editor\.cm-focused\s*>\s*\.cm-scroller\s*>\s*\.cm-selectionLayer\s+\.cm-selectionBackground[^{]*\{([^}]*)\}/g
+    ));
+
+    expect(focusedSelectionRules.some(([, declarations]) =>
+      /background-color:\s*var\(--text-selection\)/.test(declarations ?? "")
+    )).toBe(true);
     modal.close();
   });
 

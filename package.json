@@ -1,6 +1,6 @@
 {
   "name": "gemini-obsidian-plugin",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Floor notes Obsidian plugin",
   "main": "main.js",
   "scripts": {

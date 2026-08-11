@@ -2,6 +2,73 @@ import { App, Component, MarkdownRenderer, setIcon } from "obsidian";
 import { ParsedThreadDocument, ParsedRecord, Diagnostic } from "../../format/types";
 import { t } from "../../util/locale";
 
+function getComparableFileName(value: string): string {
+  const path = value.split(/[?#]/, 1)[0]?.replace(/\\/g, "/") ?? "";
+  const encodedName = path.slice(path.lastIndexOf("/") + 1);
+  try {
+    return decodeURIComponent(encodedName).normalize("NFC").toLocaleLowerCase();
+  } catch {
+    return encodedName.normalize("NFC").toLocaleLowerCase();
+  }
+}
+
+function hasAutomaticImageLabel(embed: HTMLElement): boolean {
+  const label = embed.getAttribute("alt")?.trim();
+  if (!label) {
+    return false;
+  }
+
+  const labelFileName = getComparableFileName(label);
+  const image = embed.querySelector<HTMLImageElement>("img");
+  const sources = [embed.getAttribute("src"), image?.getAttribute("src")];
+  return sources.some((source) => source !== null && source !== undefined
+    && getComparableFileName(source) === labelFileName);
+}
+
+function isImageSizeLabel(label: string): boolean {
+  return /^\d+(?:x\d+)?$/.test(label);
+}
+
+function isImageOnlyParagraph(paragraph: HTMLParagraphElement): boolean {
+  return paragraph.children.length > 0
+    && Array.from(paragraph.childNodes).every((node) => {
+      if (node.nodeType === 3) {
+        return (node.textContent ?? "").trim() === "";
+      }
+      if (node.nodeType !== 1) {
+        return false;
+      }
+
+      const child = node as Element;
+      return child.matches("img, .image-embed") || child.querySelector("img") !== null;
+    });
+}
+
+function normalizeRenderedImages(container: HTMLElement): void {
+  for (const embed of Array.from(container.querySelectorAll<HTMLElement>(".image-embed[alt]"))) {
+    const label = embed.getAttribute("alt")?.trim() ?? "";
+    const shouldShowDescription = label !== ""
+      && !hasAutomaticImageLabel(embed)
+      && !isImageSizeLabel(label);
+
+    embed.removeAttribute("alt");
+    if (shouldShowDescription) {
+      const description = embed.createSpan({
+        cls: "floor-notes-image-description",
+        text: label
+      });
+      description.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  for (const image of Array.from(container.querySelectorAll<HTMLImageElement>("img"))) {
+    const paragraph = image.closest<HTMLParagraphElement>("p");
+    if (paragraph && container.contains(paragraph) && isImageOnlyParagraph(paragraph)) {
+      paragraph.classList.add("floor-notes-image-paragraph");
+    }
+  }
+}
+
 export function createA11yButton(
   parent: HTMLElement,
   text: string,
@@ -64,6 +131,7 @@ export async function renderMarkdownBody(
   if (isActive && !isActive()) {
     return;
   }
+  normalizeRenderedImages(container);
 
   scope.registerDomEvent(container, "click", (event: MouseEvent) => {
     const ownerWindow = container.ownerDocument.defaultView;

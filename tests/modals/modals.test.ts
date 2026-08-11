@@ -3,6 +3,7 @@ import type { EditorView } from "@codemirror/view";
 import * as obsidian from "obsidian";
 import { CreateRecordModal, DeleteConfirmModal, EditRecordModal } from "../../src/modals/ThreadModals";
 import { DEFAULT_SETTINGS } from "../../src/settings/types";
+import { appendRenderedImageFixture } from "../helpers/renderedImage";
 
 const { _testState } = obsidian as any;
 const noOp = { type: "no-op" } as const;
@@ -445,6 +446,54 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     link?.click();
     expect(openLinkText).toHaveBeenCalledWith("folder/target#heading", "folder/source.md");
 
+    modal.close();
+  });
+
+  it("hides an automatic image filename in preview without removing the image alt text", async () => {
+    getMarkdownRendererMock().mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/file-20260810203902606.jpg",
+        label: "file-20260810203902606.jpg"
+      });
+    });
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(app, "Create floor", "thread.md", "preview-image", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+
+    const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
+    textarea._onChange("![[attachments/file-20260810203902606.jpg]]");
+    modal.contentEl.querySelector<HTMLButtonElement>(".floor-notes-editor-tab:nth-child(2)")?.click();
+
+    await vi.waitFor(() => expect(
+      modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed")?.hasAttribute("alt")
+    ).toBe(false));
+    const embed = modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed");
+    expect(embed?.querySelector<HTMLImageElement>("img")?.alt).toBe("file-20260810203902606.jpg");
+    expect(embed?.parentElement?.classList.contains("floor-notes-image-paragraph")).toBe(true);
+    modal.close();
+  });
+
+  it("shows a meaningful image description in preview", async () => {
+    getMarkdownRendererMock().mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/file-20260810203902606.jpg",
+        label: "视力验光"
+      });
+    });
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(app, "Create floor", "thread.md", "preview-image-description", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+
+    const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
+    textarea._onChange("![[attachments/file-20260810203902606.jpg|视力验光]]");
+    modal.contentEl.querySelector<HTMLButtonElement>(".floor-notes-editor-tab:nth-child(2)")?.click();
+
+    await vi.waitFor(() => expect(
+      modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .floor-notes-image-description")?.innerText
+    ).toBe("视力验光"));
+    const embed = modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed");
+    expect(embed?.hasAttribute("alt")).toBe(false);
+    expect(embed?.querySelector<HTMLImageElement>("img")?.alt).toBe("视力验光");
     modal.close();
   });
 

@@ -24,3 +24,25 @@
 .floor-notes-modal-preview button.copy-code-button {
   display: none;
 }
+
+.floor-notes-body .floor-notes-image-paragraph,
+.floor-notes-modal-preview .floor-notes-image-paragraph {
+  margin-block: 0 var(--size-4-2);
+}
+
+.floor-notes-body .floor-notes-image-paragraph img,
+.floor-notes-modal-preview .floor-notes-image-paragraph img {
+  block-size: auto;
+  display: block;
+  max-inline-size: 100%;
+}
+
+.floor-notes-body .floor-notes-image-description,
+.floor-notes-modal-preview .floor-notes-image-description {
+  display: block;
+  margin-block-start: var(--size-4-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+  text-align: center;
+}

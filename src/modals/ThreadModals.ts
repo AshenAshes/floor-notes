@@ -1,16 +1,18 @@
-import { App, Modal, Setting, Component, Notice, setIcon } from "obsidian";
+import { App, Modal, Setting, Component, Notice, Platform, setIcon } from "obsidian";
 import { OperationResult } from "../format/operations";
 import { t } from "../util/locale";
 import { FloorNotesSettings, DEFAULT_SETTINGS, ThreadViewStyle } from "../settings/types";
 import { applyThemeClasses } from "../theme";
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap, drawSelection } from "@codemirror/view";
+import { EditorView, KeyBinding, keymap, drawSelection } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { renderMarkdownBody } from "../view/components/renderHelpers";
 import { savePastedImageAttachment } from "../services/AttachmentPersistence";
+import { FormattingCommandId, FORMATTING_COMMANDS, runFormattingCommand } from "../editor/formattingCommands";
+import { readInheritedFormattingHotkeys, ResolvedHotkey } from "../editor/inheritedHotkeys";
 
 type EditorMode = "write" | "preview";
 
@@ -19,6 +21,20 @@ function escapeKaomojiMarkdown(kaomoji: string): string {
 }
 
 let editorModalSequence = 0;
+const hotkeyCompatibilityNotices = new WeakSet<App>();
+
+function configureFormattingButton(
+  button: HTMLButtonElement,
+  label: string,
+  hotkeys: readonly ResolvedHotkey[]
+): void {
+  const displays = hotkeys.map((hotkey) => hotkey.display);
+  button.setAttribute("aria-label", displays.length > 0 ? `${label} (${displays.join(", ")})` : label);
+  button.setAttribute("data-tooltip-position", "top");
+  if (hotkeys.length > 0) {
+    button.setAttribute("aria-keyshortcuts", hotkeys.map((hotkey) => hotkey.aria).join(" "));
+  }
+}
 
 export abstract class ThreadEditorModal extends Modal {
   protected bodyText = "";
@@ -169,6 +185,12 @@ export abstract class ThreadEditorModal extends Modal {
     const { contentEl, modalEl } = this;
     contentEl.empty();
 
+    const inheritedHotkeys = readInheritedFormattingHotkeys(this.app);
+    if (inheritedHotkeys.hasIssues && !hotkeyCompatibilityNotices.has(this.app)) {
+      hotkeyCompatibilityNotices.add(this.app);
+      new Notice(t("formatHotkeyCompatibilityIssue"));
+    }
+
     // Add custom class to modal wrapper for styling
     modalEl.classList.add("floor-notes-editor-modal");
 
@@ -207,14 +229,23 @@ export abstract class ThreadEditorModal extends Modal {
     // Create formatting buttons
     const btnBold = this.formattingControlsEl.createEl("button", { text: "B", cls: "floor-notes-toolbar-btn btn-bold" });
     btnBold.type = "button";
-    btnBold.setAttribute("aria-label", t("formatBold"));
+    configureFormattingButton(btnBold, t("formatBold"), inheritedHotkeys.bindings.bold);
     const btnItalic = this.formattingControlsEl.createEl("button", { text: "I", cls: "floor-notes-toolbar-btn btn-italic" });
     btnItalic.type = "button";
-    btnItalic.setAttribute("aria-label", t("formatItalic"));
+    configureFormattingButton(btnItalic, t("formatItalic"), inheritedHotkeys.bindings.italic);
+    const btnStrikethrough = this.formattingControlsEl.createEl("button", {
+      text: "S",
+      cls: "floor-notes-toolbar-btn btn-strikethrough"
+    });
+    btnStrikethrough.type = "button";
+    configureFormattingButton(
+      btnStrikethrough,
+      t("formatStrikethrough"),
+      inheritedHotkeys.bindings.strikethrough
+    );
     const btnLink = this.formattingControlsEl.createEl("button", { cls: "floor-notes-toolbar-btn btn-link" });
     btnLink.type = "button";
-    btnLink.setAttribute("aria-label", t("insertLink"));
-    btnLink.setAttribute("data-tooltip-position", "top");
+    configureFormattingButton(btnLink, t("insertLink"), inheritedHotkeys.bindings.link);
     setIcon(btnLink, "link");
 
     // Emoji button
@@ -285,6 +316,7 @@ export abstract class ThreadEditorModal extends Modal {
     let draftStatusEl: HTMLDivElement;
     let updateWordCount: () => void;
     let updateActionBar = (): void => {};
+    let submitCurrentDraft = (): void => {};
     let textarea!: HTMLTextAreaElement;
 
     const persistDraft = (value: string): void => {
@@ -405,6 +437,34 @@ export abstract class ThreadEditorModal extends Modal {
       { tag: tags.strikethrough, textDecoration: "line-through" },
     ]);
 
+    const inheritedKeyBindings: KeyBinding[] = [];
+    for (const command of FORMATTING_COMMANDS) {
+      for (const hotkey of inheritedHotkeys.bindings[command]) {
+        inheritedKeyBindings.push({
+          key: hotkey.key,
+          run: (view) => this.activeMode === "write" && runFormattingCommand(view, command),
+          preventDefault: true,
+          stopPropagation: true
+        });
+      }
+    }
+
+    const submitKeyBinding: KeyBinding = {
+      key: "Mod-Enter",
+      run: (view) => {
+        if (this.activeMode !== "write") {
+          return false;
+        }
+        if (view.compositionStarted) {
+          return true;
+        }
+        submitCurrentDraft();
+        return true;
+      },
+      preventDefault: true,
+      stopPropagation: true
+    };
+
     const startState = EditorState.create({
       doc: this.bodyText,
       extensions: [
@@ -415,6 +475,8 @@ export abstract class ThreadEditorModal extends Modal {
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         editorTheme,
         keymap.of([
+          submitKeyBinding,
+          ...inheritedKeyBindings,
           ...defaultKeymap,
           ...historyKeymap
         ]),
@@ -451,22 +513,25 @@ export abstract class ThreadEditorModal extends Modal {
       this.editorView.focus();
     };
 
-    const insertMarkdownLinkAtCursor = () => {
-      if (!this.editorView) return;
-      const state = this.editorView.state;
-      const { from, to } = state.selection.main;
-      const selectedText = state.doc.sliceString(from, to);
-      const markdownLink = `[${selectedText}]()`;
-      const cursorPosition = selectedText === "" ? from + 1 : from + selectedText.length + 3;
-      this.editorView.dispatch({
-        changes: { from, to, insert: markdownLink },
-        selection: { anchor: cursorPosition }
-      });
-      this.editorView.focus();
-    };
-
     // Clipboard image paste integration
     const editorContentEl = this.editorView.contentDOM;
+    this.renderComponent.registerDomEvent(editorContentEl, "keydown", (event: KeyboardEvent) => {
+      const hasPrimaryModifier = Platform.isMacOS ? event.metaKey : event.ctrlKey;
+      const hasSecondaryPlatformModifier = Platform.isMacOS ? event.ctrlKey : event.metaKey;
+      const isProtectedSubmit = event.key === "Enter"
+        && hasPrimaryModifier
+        && !hasSecondaryPlatformModifier
+        && !event.altKey
+        && !event.shiftKey;
+      if (
+        isProtectedSubmit
+        && this.activeMode === "write"
+        && (event.isComposing || this.editorView?.compositionStarted)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
     this.renderComponent.registerDomEvent(editorContentEl, "paste", (ev: ClipboardEvent) => {
       if (ev.defaultPrevented) return;
       const clipboardData = ev.clipboardData;
@@ -502,62 +567,31 @@ export abstract class ThreadEditorModal extends Modal {
       })();
     }, true);
 
-    // Formatting button handlers
-    const toggleFormatting = (marker: string) => {
-      if (!this.editorView) return;
-      const state = this.editorView.state;
-      const { from, to } = state.selection.main;
-      const len = marker.length;
-      
-      const selectedText = state.doc.sliceString(from, to);
-      
-      if (
-        selectedText.length >= len * 2 &&
-        selectedText.startsWith(marker) &&
-        selectedText.endsWith(marker)
-      ) {
-        const unwrapped = selectedText.slice(len, -len);
-        this.editorView.dispatch({
-          changes: { from, to, insert: unwrapped },
-          selection: { anchor: from, head: from + unwrapped.length }
-        });
-      } else {
-        const beforeText = state.doc.sliceString(Math.max(0, from - len), from);
-        const afterText = state.doc.sliceString(to, Math.min(state.doc.length, to + len));
-        
-        if (beforeText === marker && afterText === marker) {
-          const unwrapped = selectedText;
-          this.editorView.dispatch({
-            changes: { from: from - len, to: to + len, insert: unwrapped },
-            selection: { anchor: from - len, head: from - len + unwrapped.length }
-          });
-        } else {
-          const wrapped = marker + selectedText + marker;
-          this.editorView.dispatch({
-            changes: { from, to, insert: wrapped },
-            selection: { anchor: from + len, head: from + len + selectedText.length }
-          });
-        }
+    // Formatting button handlers share the exact command path used by inherited hotkeys.
+    const runEditorFormattingCommand = (command: FormattingCommandId): void => {
+      if (this.editorView) {
+        runFormattingCommand(this.editorView, command);
       }
-      this.editorView.focus();
     };
 
     this.renderComponent.registerDomEvent(btnLink, "mousedown", (event: MouseEvent) => {
       event.preventDefault();
     });
-    this.renderComponent.registerDomEvent(btnLink, "click", () => insertMarkdownLinkAtCursor());
+    this.renderComponent.registerDomEvent(btnLink, "click", () => runEditorFormattingCommand("link"));
 
     this.renderComponent.registerDomEvent(btnBold, "mousedown", (event: MouseEvent) => {
       event.preventDefault();
-      toggleFormatting("**");
+      runEditorFormattingCommand("bold");
     });
 
     this.renderComponent.registerDomEvent(btnItalic, "mousedown", (event: MouseEvent) => {
       event.preventDefault();
-      toggleFormatting("*");
+      runEditorFormattingCommand("italic");
     });
-
-
+    this.renderComponent.registerDomEvent(btnStrikethrough, "mousedown", (event: MouseEvent) => {
+      event.preventDefault();
+      runEditorFormattingCommand("strikethrough");
+    });
 
     // Statusbar
     const statusbar = editorContainer.createDiv({ cls: "floor-notes-modal-statusbar" });
@@ -731,6 +765,7 @@ export abstract class ThreadEditorModal extends Modal {
     };
 
     let actionBarScope: Component | null = null;
+    let currentSubmitButton: HTMLButtonElement | null = null;
     this.renderComponent.register(() => actionBarScope?.unload());
     const createActionButton = (container: HTMLElement, text: string, className: string): HTMLButtonElement => {
       const button = container.createEl("button", { text, cls: className });
@@ -742,6 +777,7 @@ export abstract class ThreadEditorModal extends Modal {
       actionBarScope?.unload();
       actionBarScope = new Component();
       actionBarScope.load();
+      currentSubmitButton = null;
       sourceActions.empty();
       submitActions.empty();
 
@@ -779,9 +815,15 @@ export abstract class ThreadEditorModal extends Modal {
         t("submit"),
         "floor-notes-editor-action floor-notes-editor-action-submit mod-cta"
       );
+      currentSubmitButton = submitButton;
       actionBarScope?.registerDomEvent(submitButton, "click", () => {
         void this.submit(submitButton, warnEl);
       });
+    };
+    submitCurrentDraft = (): void => {
+      if (currentSubmitButton) {
+        void this.submit(currentSubmitButton, warnEl);
+      }
     };
     updateActionBar();
 

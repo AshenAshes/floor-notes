@@ -145,6 +145,13 @@ export class FileView {
 
 export const setIcon = vi.fn();
 
+export const Platform = {
+  isMacOS: false,
+  isWin: true,
+  isLinux: false,
+  isMobile: false
+};
+
 export const MarkdownRenderer = {
   render: vi.fn(async (_app: any, markdown: string, el: HTMLElement) => {
     const wikiLink = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/.exec(markdown);
@@ -266,6 +273,16 @@ const mockLocalStorage = new Map<string, any>();
 export const notices: Notice[] = [];
 
 export class App {
+  public readonly hotkeyManager = {
+    getHotkeys: vi.fn((_commandId: string) => undefined),
+    getDefaultHotkeys: vi.fn((commandId: string) => {
+      if (commandId === "editor:toggle-bold") return [{ modifiers: ["Mod"], key: "B" }];
+      if (commandId === "editor:toggle-italics") return [{ modifiers: ["Mod"], key: "I" }];
+      if (commandId === "editor:insert-link") return [{ modifiers: ["Mod"], key: "K" }];
+      return [];
+    })
+  };
+
   public readonly workspace = {
     getActiveFile: vi.fn(() => null)
   };

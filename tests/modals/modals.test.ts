@@ -36,6 +36,49 @@ interface MockFunction {
   mockReturnValue(value: unknown): void;
 }
 
+interface TestHotkey {
+  readonly modifiers: readonly string[];
+  readonly key: string;
+}
+
+function installHotkeyManager(
+  app: obsidian.App,
+  custom: Map<string, readonly TestHotkey[]>,
+  defaults = new Map<string, readonly TestHotkey[]>([
+    ["editor:toggle-bold", [{ modifiers: ["Mod"], key: "B" }]],
+    ["editor:toggle-italics", [{ modifiers: ["Mod"], key: "I" }]],
+    ["editor:insert-link", [{ modifiers: ["Mod"], key: "K" }]]
+  ])
+): void {
+  Reflect.set(app, "hotkeyManager", {
+    getHotkeys: vi.fn((commandId: string) => custom.has(commandId) ? custom.get(commandId) : undefined),
+    getDefaultHotkeys: vi.fn((commandId: string) => defaults.get(commandId) ?? [])
+  });
+}
+
+function getEditorView(modal: CreateRecordModal | EditRecordModal): EditorView {
+  const editorView = (modal as unknown as { editorView: EditorView | null }).editorView;
+  if (!editorView) {
+    throw new Error("Expected the CodeMirror editor to be present.");
+  }
+  return editorView;
+}
+
+function dispatchEditorKey(
+  editorView: EditorView,
+  key: string,
+  modifiers: Pick<KeyboardEventInit, "ctrlKey" | "metaKey" | "altKey" | "shiftKey"> = {}
+): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...modifiers
+  });
+  editorView.contentDOM.dispatchEvent(event);
+  return event;
+}
+
 function getMarkdownRendererMock(): MarkdownRendererMock {
   return Reflect.get(obsidian.MarkdownRenderer, "render") as unknown as MarkdownRendererMock;
 }
@@ -777,13 +820,14 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     expect(italicIndex).toBeLessThan(linkIndex);
     expect(linkIndex).toBeLessThan(emojiIndex);
     expect(linkButton?.type).toBe("button");
-    expect(linkButton?.getAttribute("aria-label")).toBe("Insert link");
+    expect(linkButton?.getAttribute("aria-label")).toBe("Insert link (Ctrl + K)");
+    expect(linkButton?.getAttribute("aria-keyshortcuts")).toBe("Control+K");
     expect(linkButton?.getAttribute("data-tooltip-position")).toBe("top");
 
     linkButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     linkButton?.click();
     expect(editorView?.state.doc.toString()).toBe("[]()");
-    expect(editorView?.state.selection.main.anchor).toBe(1);
+    expect(editorView?.state.selection.main.anchor).toBe(3);
 
     editorView?.dispatch({
       changes: { from: 0, to: editorView.state.doc.length, insert: "Example" },
@@ -794,6 +838,169 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     expect(editorView?.state.selection.main.anchor).toBe(10);
     expect(editorView?.state.selection.main.head).toBe(10);
     modal.close();
+  });
+
+  it("T-073: exposes inherited hotkeys on the ordered toolbar and adds strikethrough", () => {
+    const app = new obsidian.App();
+    installHotkeyManager(app, new Map([
+      ["editor:toggle-bold", [
+        { modifiers: ["Mod"], key: "B" },
+        { modifiers: ["Alt"], key: "B" }
+      ]],
+      ["editor:toggle-strikethrough", [{ modifiers: [], key: "F5" }]]
+    ]));
+    const modal = new CreateRecordModal(app, "Create floor", "test-file.md", "toolbar-hotkeys", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+
+    const buttons = Array.from(modal.contentEl.querySelectorAll<HTMLButtonElement>(
+      ".floor-notes-modal-formatting-controls button"
+    ));
+    expect(buttons.map((button) => Array.from(button.classList).find((className) => className.startsWith("btn-"))))
+      .toEqual(["btn-bold", "btn-italic", "btn-strikethrough", "btn-link", "btn-emoji"]);
+
+    const boldButton = modal.contentEl.querySelector<HTMLButtonElement>(".btn-bold");
+    const strikeButton = modal.contentEl.querySelector<HTMLButtonElement>(".btn-strikethrough");
+    expect(boldButton?.getAttribute("aria-label")).toBe("Bold (Ctrl + B, Alt + B)");
+    expect(boldButton?.getAttribute("aria-keyshortcuts")).toBe("Control+B Alt+B");
+    expect(strikeButton?.getAttribute("aria-label")).toBe("Strikethrough (F5)");
+    expect(strikeButton?.getAttribute("aria-keyshortcuts")).toBe("F5");
+
+    strikeButton?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    expect(getEditorView(modal).state.doc.toString()).toBe("~~~~");
+    modal.close();
+  });
+
+  it("runs inherited format keys before CodeMirror defaults and stops propagation", () => {
+    const app = new obsidian.App();
+    installHotkeyManager(app, new Map([
+      ["editor:toggle-strikethrough", [{ modifiers: ["Mod"], key: "`" }]]
+    ]));
+    const modal = new CreateRecordModal(app, "Create floor", "test-file.md", "format-hotkeys", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+    const editorView = getEditorView(modal);
+    const bubbled = vi.fn();
+    modal.contentEl.addEventListener("keydown", bubbled);
+
+    const replaceText = (value = ""): void => {
+      editorView.dispatch({
+        changes: { from: 0, to: editorView.state.doc.length, insert: value },
+        selection: { anchor: value.length }
+      });
+    };
+
+    const boldEvent = dispatchEditorKey(editorView, "b", { ctrlKey: true });
+    expect(editorView.state.doc.toString()).toBe("****");
+    expect(boldEvent.defaultPrevented).toBe(true);
+    expect(bubbled).not.toHaveBeenCalled();
+
+    replaceText();
+    dispatchEditorKey(editorView, "i", { ctrlKey: true });
+    expect(editorView.state.doc.toString()).toBe("**");
+
+    replaceText();
+    dispatchEditorKey(editorView, "`", { ctrlKey: true });
+    expect(editorView.state.doc.toString()).toBe("~~~~");
+
+    replaceText();
+    dispatchEditorKey(editorView, "k", { ctrlKey: true });
+    expect(editorView.state.doc.toString()).toBe("[]()");
+    expect(editorView.state.selection.main.anchor).toBe(3);
+    modal.close();
+  });
+
+  it("snapshots inherited hotkeys for each modal open", () => {
+    const app = new obsidian.App();
+    const custom = new Map<string, readonly TestHotkey[]>([
+      ["editor:toggle-strikethrough", [{ modifiers: ["Mod"], key: "1" }]]
+    ]);
+    installHotkeyManager(app, custom);
+    const first = new CreateRecordModal(app, "Create floor", "test-file.md", "snapshot-one", vi.fn().mockResolvedValue(noOp));
+    first.open();
+    const firstEditor = getEditorView(first);
+
+    custom.set("editor:toggle-strikethrough", [{ modifiers: ["Mod"], key: "2" }]);
+    dispatchEditorKey(firstEditor, "1", { ctrlKey: true });
+    expect(firstEditor.state.doc.toString()).toBe("~~~~");
+    first.close();
+
+    const second = new CreateRecordModal(app, "Create floor", "test-file.md", "snapshot-two", vi.fn().mockResolvedValue(noOp));
+    second.open();
+    dispatchEditorKey(getEditorView(second), "2", { ctrlKey: true });
+    expect(getEditorView(second).state.doc.toString()).toBe("~~~~");
+    second.close();
+  });
+
+  it("keeps inherited formatting write-only", async () => {
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(app, "Create floor", "test-file.md", "preview-hotkey", vi.fn().mockResolvedValue(noOp));
+    modal.open();
+    const editorView = getEditorView(modal);
+    const previewTab = modal.contentEl.querySelector<HTMLButtonElement>(".floor-notes-editor-tab:nth-child(2)");
+    previewTab?.click();
+    await Promise.resolve();
+
+    dispatchEditorKey(editorView, "b", { ctrlKey: true });
+    expect(editorView.state.doc.toString()).toBe("");
+    modal.close();
+  });
+
+  it("protects Mod-Enter submission, including duplicate and IME cases", async () => {
+    const app = new obsidian.App();
+    let resolveSubmit: ((result: typeof noOp) => void) | undefined;
+    const onSubmit = vi.fn(() => new Promise<typeof noOp>((resolve) => {
+      resolveSubmit = resolve;
+    }));
+    const modal = new CreateRecordModal(app, "Create floor", "test-file.md", "submit-hotkey", onSubmit);
+    modal.open();
+    const editorView = getEditorView(modal);
+    editorView.dispatch({ changes: { from: 0, to: 0, insert: "Keyboard submit" } });
+    const bubbled = vi.fn();
+    modal.contentEl.addEventListener("keydown", bubbled);
+
+    editorView.contentDOM.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    expect(editorView.compositionStarted).toBe(true);
+    const imeSubmit = dispatchEditorKey(editorView, "Enter", { ctrlKey: true });
+    expect(imeSubmit.defaultPrevented).toBe(true);
+    expect(bubbled).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(editorView.state.doc.toString()).toBe("Keyboard submit");
+    modal.close();
+
+    const submitModal = new CreateRecordModal(
+      app,
+      "Create floor",
+      "test-file.md",
+      "submit-hotkey-normal",
+      onSubmit
+    );
+    submitModal.open();
+    const submitEditor = getEditorView(submitModal);
+    submitEditor.dispatch({ changes: { from: 0, to: 0, insert: "Keyboard submit" } });
+    const firstSubmit = dispatchEditorKey(submitEditor, "Enter", { ctrlKey: true });
+    dispatchEditorKey(submitEditor, "Enter", { ctrlKey: true });
+    expect(firstSubmit.defaultPrevented).toBe(true);
+    expect(submitEditor.state.doc.toString()).toBe("Keyboard submit");
+    expect(onSubmit).toHaveBeenCalledOnce();
+
+    resolveSubmit?.(noOp);
+    await vi.waitFor(() => expect(submitModal.contentEl.childElementCount).toBe(0));
+  });
+
+  it("reports private hotkey compatibility issues only once per app session", () => {
+    const app = new obsidian.App();
+    Reflect.deleteProperty(app, "hotkeyManager");
+    const first = new CreateRecordModal(app, "Create floor", "test-file.md", "notice-one", vi.fn().mockResolvedValue(noOp));
+    const second = new CreateRecordModal(app, "Create floor", "test-file.md", "notice-two", vi.fn().mockResolvedValue(noOp));
+
+    first.open();
+    first.close();
+    second.open();
+
+    expect(_testState.notices).toHaveLength(1);
+    expect(_testState.notices[0]?.message).toBe(
+      "Some inherited editing hotkeys were unavailable or conflicted; toolbar formatting remains available."
+    );
+    second.close();
   });
 
   it("saves a pasted image to the vault and inserts its Markdown link", async () => {

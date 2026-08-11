@@ -331,14 +331,14 @@
 
 .floor-notes-modal-toolbar button.floor-notes-toolbar-btn {
   align-items: center;
-  block-size: 28px;
+  block-size: 44px;
   box-sizing: border-box;
   display: inline-flex;
-  flex: 0 0 28px;
-  inline-size: 28px;
+  flex: 0 0 44px;
+  inline-size: 44px;
   justify-content: center;
-  min-block-size: 28px;
-  min-inline-size: 28px;
+  min-block-size: 44px;
+  min-inline-size: 44px;
   padding: 0;
   background: transparent;
   border: 1px solid transparent;
@@ -349,6 +349,18 @@
   font-size: var(--font-small);
   line-height: 1;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.floor-notes-modal-toolbar .btn-bold {
+  font-weight: 700;
+}
+
+.floor-notes-modal-toolbar .btn-italic {
+  font-style: italic;
+}
+
+.floor-notes-modal-toolbar .btn-strikethrough {
+  text-decoration: line-through;
 }
 
 .floor-notes-modal-toolbar button.floor-notes-toolbar-btn:hover {

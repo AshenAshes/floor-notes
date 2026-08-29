@@ -25,6 +25,8 @@
   "enableFloorViewFailed": "Unable to enable floor view",
   "settingsDefaultViewStyle": "Default view style",
   "settingsDefaultViewStyleDesc": "Used when enabling floor view for a new note; existing notes without an explicit style inherit this setting.",
+  "settingsShowImageDescriptions": "Show image descriptions",
+  "settingsShowImageDescriptionsDesc": "Show an image description as a title in floor view when the author provided one.",
   "save": "Save",
   "submit": "Submit",
   "cancel": "Cancel",
@@ -102,5 +104,11 @@
   "kaomojiTab": "Kaomoji",
   "loadMoreReplies": "Load more replies",
   "diagnosticFormatError": "Invalid floor-note format ({code})",
-  "operationFailed": "The requested change could not be applied."
+  "operationFailed": "The requested change could not be applied.",
+  "openImage": "Open image",
+  "closeImageViewer": "Close image viewer",
+  "zoomIn": "Zoom in",
+  "editBlock": "Edit this block",
+  "resizeImage": "Resize image",
+  "imageResizeConflict": "The image changed before the resize could be saved; the floor view has been refreshed."
 }

@@ -1,5 +1,6 @@
 import { App, Component, MarkdownRenderer, setIcon } from "obsidian";
 import { ParsedThreadDocument, ParsedRecord, Diagnostic } from "../../format/types";
+import { normalizeMarkdownImageTargets } from "../../format/imageSizing";
 import { t } from "../../util/locale";
 
 function getComparableFileName(value: string): string {
@@ -12,44 +13,60 @@ function getComparableFileName(value: string): string {
   }
 }
 
-function hasAutomaticImageLabel(embed: HTMLElement): boolean {
-  const label = embed.getAttribute("alt")?.trim();
+function hasAutomaticImageLabel(
+  label: string,
+  image: HTMLImageElement | null,
+  additionalSource?: string | null
+): boolean {
   if (!label) {
     return false;
   }
 
   const labelFileName = getComparableFileName(label);
-  const image = embed.querySelector<HTMLImageElement>("img");
-  const sources = [embed.getAttribute("src"), image?.getAttribute("src")];
+  const sources = [additionalSource, image?.getAttribute("src")];
   return sources.some((source) => source !== null && source !== undefined
     && getComparableFileName(source) === labelFileName);
 }
 
-function isImageSizeLabel(label: string): boolean {
-  return /^\d+(?:x\d+)?$/.test(label);
+function getVisibleImageDescription(label: string): string {
+  return label.replace(/(?:^|\|)\d+(?:x\d+)?$/, "").trim();
 }
 
-function isImageOnlyParagraph(paragraph: HTMLParagraphElement): boolean {
+function isImageOnlyContentNode(node: ChildNode): boolean {
+  if (node.nodeType === 3) {
+    return (node.textContent ?? "").trim() === "";
+  }
+  if (node.nodeType === 8) {
+    return true;
+  }
+  if (node.nodeType !== 1) {
+    return false;
+  }
+
+  const element = node as Element;
+  if (element.matches("img, .image-embed, .floor-notes-image-description")) {
+    return true;
+  }
+  return element.childNodes.length > 0
+    && Array.from(element.childNodes).every(isImageOnlyContentNode);
+}
+
+function isImageOnlyParagraph(paragraph: Element): boolean {
   return paragraph.children.length > 0
-    && Array.from(paragraph.childNodes).every((node) => {
-      if (node.nodeType === 3) {
-        return (node.textContent ?? "").trim() === "";
-      }
-      if (node.nodeType !== 1) {
-        return false;
-      }
-
-      const child = node as Element;
-      return child.matches("img, .image-embed") || child.querySelector("img") !== null;
-    });
+    && Array.from(paragraph.childNodes).every(isImageOnlyContentNode);
 }
 
-function normalizeRenderedImages(container: HTMLElement): void {
+function normalizeRenderedImages(
+  container: HTMLElement,
+  showImageDescriptions: boolean,
+  showStandardMarkdownDescriptions: boolean
+): void {
   for (const embed of Array.from(container.querySelectorAll<HTMLElement>(".image-embed[alt]"))) {
-    const label = embed.getAttribute("alt")?.trim() ?? "";
-    const shouldShowDescription = label !== ""
-      && !hasAutomaticImageLabel(embed)
-      && !isImageSizeLabel(label);
+    const label = getVisibleImageDescription(embed.getAttribute("alt")?.trim() ?? "");
+    const image = embed.querySelector<HTMLImageElement>("img");
+    const shouldShowDescription = showImageDescriptions
+      && label !== ""
+      && !hasAutomaticImageLabel(label, image, embed.getAttribute("src"));
 
     embed.removeAttribute("alt");
     if (shouldShowDescription) {
@@ -62,11 +79,49 @@ function normalizeRenderedImages(container: HTMLElement): void {
   }
 
   for (const image of Array.from(container.querySelectorAll<HTMLImageElement>("img"))) {
+    if (showStandardMarkdownDescriptions && !image.closest(".image-embed")) {
+      const label = getVisibleImageDescription(image.alt.trim());
+      const descriptionAnchor = image.closest<HTMLElement>("a") ?? image;
+      const descriptionParent = descriptionAnchor.parentElement;
+      if (
+        label !== ""
+        && descriptionParent
+        && container.contains(descriptionParent)
+        && !hasAutomaticImageLabel(label, image)
+      ) {
+        const description = descriptionParent.createSpan({
+          cls: "floor-notes-image-description",
+          text: label
+        });
+        description.setAttribute("aria-hidden", "true");
+        descriptionAnchor.after(description);
+      }
+    }
     const paragraph = image.closest<HTMLParagraphElement>("p");
     if (paragraph && container.contains(paragraph) && isImageOnlyParagraph(paragraph)) {
       paragraph.classList.add("floor-notes-image-paragraph");
     }
   }
+}
+
+function renderReplyAuthorLabel(container: HTMLElement, authorLabel: string): void {
+  const firstBlock = container.firstElementChild;
+  const isOrdinaryParagraph = firstBlock?.tagName === "P"
+    && !isImageOnlyParagraph(firstBlock);
+  const label = isOrdinaryParagraph
+    ? container.createSpan({ cls: "floor-notes-reply-author" })
+    : container.createDiv({
+      cls: "floor-notes-reply-author floor-notes-reply-author-lead"
+    });
+  label.textContent = `${authorLabel}:`;
+
+  if (!isOrdinaryParagraph || !firstBlock) {
+    container.prepend(label);
+    return;
+  }
+
+  firstBlock.prepend(label);
+  label.after(" ");
 }
 
 export function createA11yButton(
@@ -119,19 +174,33 @@ export function createA11yIconButton(
   return btn;
 }
 
+interface RenderMarkdownBodyOptions {
+  readonly isActive?: () => boolean;
+  readonly presentation?: "editor-preview" | "floor-view";
+  readonly showImageDescriptions?: boolean;
+}
+
 export async function renderMarkdownBody(
   container: HTMLElement,
   bodyText: string,
   app: App,
   sourcePath: string,
   scope: Component,
-  isActive?: () => boolean
+  options: RenderMarkdownBodyOptions = {}
 ): Promise<void> {
-  await MarkdownRenderer.render(app, bodyText, container, sourcePath, scope);
-  if (isActive && !isActive()) {
+  const isFloorView = options.presentation === "floor-view";
+  await MarkdownRenderer.render(
+    app,
+    isFloorView ? normalizeMarkdownImageTargets(bodyText) : bodyText,
+    container,
+    sourcePath,
+    scope
+  );
+  if (options.isActive && !options.isActive()) {
     return;
   }
-  normalizeRenderedImages(container);
+  const showImageDescriptions = isFloorView && options.showImageDescriptions === true;
+  normalizeRenderedImages(container, showImageDescriptions, showImageDescriptions);
 
   scope.registerDomEvent(container, "click", (event: MouseEvent) => {
     const ownerWindow = container.ownerDocument.defaultView;
@@ -191,8 +260,10 @@ export async function renderRecord(
   onReply: () => void,
   onEdit: () => void,
   onDelete: () => void,
-  onToggleFavorite?: () => void
-): Promise<void> {
+  onToggleFavorite?: () => void,
+  authorLabel?: string,
+  showImageDescriptions = false
+): Promise<HTMLElement> {
   const isFloor = record.type === "floor";
   const recordEl = container.createEl("article", {
     cls: `floor-notes-record ${isFloor ? "floor-notes-floor" : "floor-notes-reply"}`,
@@ -207,7 +278,13 @@ export async function renderRecord(
 
   const contentEl = recordEl.createDiv({ cls: "floor-notes-record-content" });
   const bodyEl = contentEl.createDiv({ cls: "floor-notes-body" });
-  await renderMarkdownBody(bodyEl, bodyText, app, path, scope);
+  await renderMarkdownBody(bodyEl, bodyText, app, path, scope, {
+    presentation: "floor-view",
+    showImageDescriptions
+  });
+  if (!isFloor && authorLabel !== undefined) {
+    renderReplyAuthorLabel(bodyEl, authorLabel);
+  }
 
   const footerEl = recordEl.createEl("footer", { cls: "floor-notes-record-bottom floor-notes-record-footer" });
   const leftInfo = footerEl.createDiv({ cls: "floor-notes-meta-left" });
@@ -256,6 +333,8 @@ export async function renderRecord(
     onDelete,
     "floor-notes-icon-btn floor-notes-record-action floor-notes-record-action-delete"
   );
+
+  return recordEl;
 }
 
 export function renderErrorList(container: HTMLElement, diagnostics: readonly Diagnostic[]): void {

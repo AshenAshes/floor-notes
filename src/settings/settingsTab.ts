@@ -139,6 +139,14 @@ export class FloorNotesSettingTab extends PluginSettingTab {
             }
           },
           {
+            name: t("settingsShowImageDescriptions"),
+            desc: t("settingsShowImageDescriptionsDesc"),
+            control: {
+              type: "toggle",
+              key: "showImageDescriptions"
+            }
+          },
+          {
             name: t("settingsAutoOpen"),
             desc: t("settingsAutoOpenDesc"),
             control: {
@@ -165,6 +173,8 @@ export class FloorNotesSettingTab extends PluginSettingTab {
         return this.plugin.settings.mode;
       case "autoOpenThreadView":
         return this.plugin.settings.autoOpenThreadView;
+      case "showImageDescriptions":
+        return this.plugin.settings.showImageDescriptions;
       case "defaultViewStyle":
         return this.plugin.settings.defaultViewStyle;
       default:
@@ -202,6 +212,11 @@ export class FloorNotesSettingTab extends PluginSettingTab {
       case "autoOpenThreadView":
         if (typeof value === "boolean") {
           void this.plugin.updateSettings({ autoOpenThreadView: value });
+        }
+        break;
+      case "showImageDescriptions":
+        if (typeof value === "boolean") {
+          void this.plugin.updateSettings({ showImageDescriptions: value });
         }
         break;
       default:
@@ -296,6 +311,17 @@ export class FloorNotesSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.defaultViewStyle)
           .onChange(async (value) => {
             await this.plugin.updateSettings({ defaultViewStyle: value as ThreadViewStyle });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(t("settingsShowImageDescriptions"))
+      .setDesc(t("settingsShowImageDescriptionsDesc"))
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.showImageDescriptions)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({ showImageDescriptions: value });
           });
       });
 

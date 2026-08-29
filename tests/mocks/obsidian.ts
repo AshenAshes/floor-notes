@@ -1,5 +1,11 @@
 import { vi } from "vitest";
 
+let mockLanguage = "en";
+
+export function getLanguage(): string {
+  return mockLanguage;
+}
+
 // Inject Obsidian's prototype monkeypatches for test environment
 if (typeof window !== "undefined") {
   (globalThis as any).activeWindow = window;
@@ -149,6 +155,8 @@ export const Platform = {
   isMacOS: false,
   isWin: true,
   isLinux: false,
+  isDesktop: true,
+  isDesktopApp: true,
   isMobile: false
 };
 
@@ -465,7 +473,13 @@ export const _testState = {
   registeredTextAreas,
   notices,
   menus,
-  mockLocalStorage
+  mockLocalStorage,
+  get language(): string {
+    return mockLanguage;
+  },
+  set language(value: string) {
+    mockLanguage = value;
+  }
 };
 
 export function htmlToMarkdown(html: string | HTMLElement): string {

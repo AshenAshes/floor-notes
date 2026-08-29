@@ -25,6 +25,8 @@
   "enableFloorViewFailed": "无法启用楼层视图",
   "settingsDefaultViewStyle": "默认贴子视图风格",
   "settingsDefaultViewStyleDesc": "为新启用楼层视图的笔记使用此风格；没有独立风格的已有笔记也会继承此设置。",
+  "settingsShowImageDescriptions": "显示图片别名",
+  "settingsShowImageDescriptionsDesc": "开启后，仅在楼层视图中将作者提供的图片别名显示为标题。",
   "save": "保存",
   "submit": "提交",
   "cancel": "取消",
@@ -102,5 +104,11 @@
   "kaomojiTab": "颜文字",
   "loadMoreReplies": "加载更多回复",
   "diagnosticFormatError": "楼层笔记格式无效（{code}）",
-  "operationFailed": "无法应用请求的更改。"
+  "operationFailed": "无法应用请求的更改。",
+  "openImage": "打开图片",
+  "closeImageViewer": "关闭图片查看器",
+  "zoomIn": "放大",
+  "editBlock": "编辑这个区块",
+  "resizeImage": "调整图片大小",
+  "imageResizeConflict": "保存缩放前图片内容已发生变化，楼层视图已刷新。"
 }

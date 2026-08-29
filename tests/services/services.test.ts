@@ -3,6 +3,8 @@ import type { App, TFile } from "obsidian";
 import { FileIdentityRegistry } from "../../src/services/FileIdentityRegistry";
 import { SerialTaskQueue } from "../../src/services/SerialTaskQueue";
 import { ThreadMutationService } from "../../src/services/ThreadMutationService";
+import { parseThreadDocument } from "../../src/format/parser";
+import { indexResizableImages } from "../../src/format/imageSizing";
 
 const mockTFile = (path: string, name: string): TFile => {
   return {
@@ -177,6 +179,100 @@ describe("ThreadMutationService Vault processes", () => {
 
     expect(result.type).toBe("applied");
     expect(vault.getContent()).toContain("floor-notes-view-style: timeline");
+  });
+
+  it("resizes a Wiki image against the latest Vault.process text", async () => {
+    const source = baseDoc.replace("Body.", "Before ![[photo.png]] after");
+    const parsed = parseThreadDocument(source, "my-thread.md");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const record = parsed.doc.records[0]!;
+    const body = source.substring(record.bodySpan.start, record.bodySpan.end);
+    const occurrence = indexResizableImages(body)[0];
+    expect(occurrence).not.toBeNull();
+    if (!occurrence) return;
+
+    const registry = new FileIdentityRegistry();
+    const vault = mockVault(source);
+    const service = new ThreadMutationService({ vault } as unknown as App, registry);
+    const file = mockTFile("notes/my-thread.md", "my-thread.md");
+    const listener = vi.fn();
+    service.addAppliedListener(listener);
+
+    const result = await service.setImageSize(file, {
+      recordId: record.id,
+      expectedBody: body,
+      occurrence,
+      desiredWidth: 320
+    });
+
+    expect(result.type).toBe("applied");
+    expect(vault.getContent()).toBe(source.replace("![[photo.png]]", "![[photo.png|320]]"));
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("sets an inline Markdown image size through the queued mutation path", async () => {
+    const source = baseDoc.replace(
+      "Body.",
+      "Before ![description](images/a\\(b\\).png \"kept title\") after"
+    );
+    const parsed = parseThreadDocument(source, "my-thread.md");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const record = parsed.doc.records[0]!;
+    const body = source.substring(record.bodySpan.start, record.bodySpan.end);
+    const occurrence = indexResizableImages(body)[0]!;
+    const registry = new FileIdentityRegistry();
+    const vault = mockVault(source);
+    const service = new ThreadMutationService({ vault } as unknown as App, registry);
+    const file = mockTFile("notes/my-thread.md", "my-thread.md");
+
+    const result = await service.setImageSize(file, {
+      recordId: record.id,
+      expectedBody: body,
+      occurrence,
+      desiredWidth: 275
+    });
+
+    expect(result.type).toBe("applied");
+    expect(vault.getContent()).toBe(source.replace(
+      "![description](images/a\\(b\\).png \"kept title\")",
+      "![description|275](images/a\\(b\\).png \"kept title\")"
+    ));
+  });
+
+  it("returns a conflict and preserves the latest bytes when the Record body changed", async () => {
+    const source = baseDoc.replace("Body.", "![[photo.png]]");
+    const parsed = parseThreadDocument(source, "my-thread.md");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const record = parsed.doc.records[0]!;
+    const body = source.substring(record.bodySpan.start, record.bodySpan.end);
+    const occurrence = indexResizableImages(body)[0];
+    expect(occurrence).not.toBeNull();
+    if (!occurrence) return;
+
+    const latestSource = source.replace("![[photo.png]]", "Externally changed ![[photo.png]]");
+    const registry = new FileIdentityRegistry();
+    const vault = mockVault(latestSource);
+    const service = new ThreadMutationService({ vault } as unknown as App, registry);
+    const file = mockTFile("notes/my-thread.md", "my-thread.md");
+    const listener = vi.fn();
+    service.addAppliedListener(listener);
+
+    const result = await service.setImageSize(file, {
+      recordId: record.id,
+      expectedBody: body,
+      occurrence,
+      desiredWidth: 320
+    });
+
+    expect(result).toMatchObject({ type: "conflict" });
+    expect(vault.getContent()).toBe(latestSource);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("should reject mutations on deleted/tombstoned files", async () => {

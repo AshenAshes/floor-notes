@@ -11,10 +11,16 @@ import { HighlightStyle, syntaxHighlighting, defaultHighlightStyle } from "@code
 import { tags } from "@lezer/highlight";
 import { renderMarkdownBody } from "../view/components/renderHelpers";
 import { savePastedImageAttachment } from "../services/AttachmentPersistence";
+import { normalizeMarkdownImageTargets } from "../format/imageSizing";
 import { FormattingCommandId, FORMATTING_COMMANDS, runFormattingCommand } from "../editor/formattingCommands";
 import { readInheritedFormattingHotkeys, ResolvedHotkey } from "../editor/inheritedHotkeys";
 
 type EditorMode = "write" | "preview";
+
+export interface EditorSelectionRange {
+  readonly anchor: number;
+  readonly head: number;
+}
 
 function escapeKaomojiMarkdown(kaomoji: string): string {
   return kaomoji.replace(/[\\`*_]/g, (character) => `\\${character}`);
@@ -71,7 +77,8 @@ export abstract class ThreadEditorModal extends Modal {
     protected readonly onSubmit: (body: string) => Promise<OperationResult>,
     protected readonly onCloseCallback?: () => void,
     protected readonly settings: FloorNotesSettings = DEFAULT_SETTINGS,
-    protected readonly viewStyle?: ThreadViewStyle
+    protected readonly viewStyle?: ThreadViewStyle,
+    private readonly initialSelection?: EditorSelectionRange
   ) {
     super(app);
   }
@@ -153,7 +160,7 @@ export abstract class ThreadEditorModal extends Modal {
         this.app,
         this.filePath,
         scope,
-        () => this.isCurrentPreview(generation, scope)
+        { isActive: () => this.isCurrentPreview(generation, scope) }
       );
       if (!this.isCurrentPreview(generation, scope)) {
         return;
@@ -559,7 +566,7 @@ export abstract class ThreadEditorModal extends Modal {
           }
           const markdownLink = this.app.fileManager.generateMarkdownLink(createdFile, this.filePath);
           const mdImage = markdownLink.startsWith("!") ? markdownLink : `!${markdownLink}`;
-          insertTextAtCursor(mdImage);
+          insertTextAtCursor(normalizeMarkdownImageTargets(mdImage));
         } catch (err) {
           console.error("Paste image failed:", err);
           new Notice(t("pasteImageFailed"));
@@ -831,10 +838,12 @@ export abstract class ThreadEditorModal extends Modal {
     contentEl.ownerDocument.defaultView?.setTimeout(() => {
       if (this.editorView) {
         this.editorView.focus();
-        // Move selection to end of doc
         const len = this.editorView.state.doc.length;
+        const anchor = Math.max(0, Math.min(len, this.initialSelection?.anchor ?? len));
+        const head = Math.max(0, Math.min(len, this.initialSelection?.head ?? len));
         this.editorView.dispatch({
-          selection: { anchor: len, head: len }
+          selection: { anchor, head },
+          scrollIntoView: true
         });
       }
     }, 50);
@@ -845,7 +854,7 @@ export abstract class ThreadEditorModal extends Modal {
       return;
     }
 
-    const body = this.bodyText;
+    const body = normalizeMarkdownImageTargets(this.bodyText);
     if (body.trim() === "") {
       warnEl.setText(t("errorEmptyBody"));
       return;
@@ -941,9 +950,19 @@ export class EditRecordModal extends ThreadEditorModal {
     onSubmit: (body: string) => Promise<OperationResult>,
     onCloseCallback?: () => void,
     settings?: FloorNotesSettings,
-    viewStyle?: ThreadViewStyle
+    viewStyle?: ThreadViewStyle,
+    initialSelection?: EditorSelectionRange
   ) {
-    super(app, titleText, filePath, onSubmit, onCloseCallback, settings, viewStyle);
+    super(
+      app,
+      titleText,
+      filePath,
+      onSubmit,
+      onCloseCallback,
+      settings,
+      viewStyle,
+      initialSelection
+    );
     this.bodyText = initialBody;
   }
 

@@ -141,6 +141,26 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
   });
 
+  it("submits native-valid image targets when an edited body contains a relaxed space path", async () => {
+    const app = new obsidian.App();
+    const onSubmit = vi.fn().mockResolvedValue(noOp);
+    const modal = new EditRecordModal(
+      app,
+      "Edit floor",
+      "test-file.md",
+      "floor-spaced-image",
+      "![ss](Pasted image 1784317969136.png)",
+      onSubmit
+    );
+    modal.open();
+
+    getSubmitButton(modal).click();
+
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledWith(
+      "![ss](Pasted%20image%201784317969136.png)"
+    ));
+  });
+
   it("T-045 T-046 T-047: retains a reply draft and focus context on a conflict", async () => {
     const app = new obsidian.App();
     const onSubmit = vi.fn().mockResolvedValue({ type: "conflict", reason: "The reply changed elsewhere." });
@@ -513,10 +533,11 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     const embed = modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed");
     expect(embed?.querySelector<HTMLImageElement>("img")?.alt).toBe("file-20260810203902606.jpg");
     expect(embed?.parentElement?.classList.contains("floor-notes-image-paragraph")).toBe(true);
+    expect(modal.contentEl.querySelector(".floor-notes-image-resize-handle")).toBeNull();
     modal.close();
   });
 
-  it("shows a meaningful image description in preview", async () => {
+  it("does not show a meaningful image description in preview when the Floor setting is enabled", async () => {
     getMarkdownRendererMock().mockImplementationOnce(async (_app, _markdown, container) => {
       appendRenderedImageFixture(container, {
         source: "attachments/file-20260810203902606.jpg",
@@ -524,7 +545,15 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
       });
     });
     const app = new obsidian.App();
-    const modal = new CreateRecordModal(app, "Create floor", "thread.md", "preview-image-description", vi.fn().mockResolvedValue(noOp));
+    const modal = new CreateRecordModal(
+      app,
+      "Create floor",
+      "thread.md",
+      "preview-image-description",
+      vi.fn().mockResolvedValue(noOp),
+      undefined,
+      { ...DEFAULT_SETTINGS, showImageDescriptions: true }
+    );
     modal.open();
 
     const textarea = Array.from(_testState.registeredTextAreas)[0] as any;
@@ -532,11 +561,13 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     modal.contentEl.querySelector<HTMLButtonElement>(".floor-notes-editor-tab:nth-child(2)")?.click();
 
     await vi.waitFor(() => expect(
-      modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .floor-notes-image-description")?.innerText
-    ).toBe("视力验光"));
+      modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed")?.hasAttribute("alt")
+    ).toBe(false));
     const embed = modal.contentEl.querySelector<HTMLElement>(".floor-notes-modal-preview .image-embed");
     expect(embed?.hasAttribute("alt")).toBe(false);
     expect(embed?.querySelector<HTMLImageElement>("img")?.alt).toBe("视力验光");
+    expect(embed?.querySelector(".floor-notes-image-description")).toBeNull();
+    expect(modal.contentEl.querySelector(".floor-notes-image-resize-handle")).toBeNull();
     modal.close();
   });
 
@@ -1029,6 +1060,48 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     expect(getAvailablePathForAttachment).toHaveBeenCalledWith(expect.stringMatching(/^Pasted image \d{14}\.png$/), "test-file.md");
     expect(generateMarkdownLink).toHaveBeenCalledOnce();
     expect(editorView?.state.doc.toString()).toBe("![[attachments/pasted.png]]");
+    modal.close();
+  });
+
+  it("normalizes a pasted Markdown image link with a space path before insertion", async () => {
+    const app = new obsidian.App();
+    const getAvailablePathForAttachment = Reflect.get(
+      app.fileManager,
+      "getAvailablePathForAttachment"
+    ) as unknown as MockFunction;
+    const generateMarkdownLink = Reflect.get(
+      app.fileManager,
+      "generateMarkdownLink"
+    ) as unknown as MockFunction;
+    getAvailablePathForAttachment.mockResolvedValue("Pasted image 1784317969136.png");
+    generateMarkdownLink.mockReturnValue("[Pasted image](Pasted image 1784317969136.png)");
+    const modal = new CreateRecordModal(
+      app,
+      "Create floor",
+      "test-file.md",
+      "paste-spaced-markdown-image",
+      vi.fn().mockResolvedValue(noOp)
+    );
+    modal.open();
+
+    const editorView = getEditorView(modal);
+    const event = new Event("paste", { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        items: [{
+          type: "image/png",
+          getAsFile: () => ({
+            name: "clipboard.png",
+            arrayBuffer: async () => new ArrayBuffer(4)
+          })
+        }]
+      }
+    });
+    editorView.contentDOM.dispatchEvent(event);
+
+    await vi.waitFor(() => expect(editorView.state.doc.toString()).toBe(
+      "![Pasted image](Pasted%20image%201784317969136.png)"
+    ));
     modal.close();
   });
 

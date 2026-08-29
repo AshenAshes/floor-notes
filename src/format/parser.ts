@@ -5,7 +5,7 @@ import { parseStructuralHeading, parseATXH1Title } from "./headings";
 import { parseMetadataBlock } from "./metadata";
 import { findRecordSeparatorSpan } from "./separators";
 import { isValidRecordId } from "../util/ids";
-import { isUnicodeWhitespace } from "../util/unicodeWhitespace";
+import { isUnicodeWhitespace, trimUnicodeWhitespace } from "../util/unicodeWhitespace";
 import { ParseResult, Diagnostic, ParsedRecord, Span, ParsedThreadDocument } from "./types";
 import { ThreadViewStyle } from "../settings/types";
 
@@ -128,6 +128,7 @@ export function parseThreadDocument(
     let dateSpan: Span = { start: 0, end: 0 };
     let recordFavorite: boolean = false;
     let favoriteSpan: Span | null = null;
+    let authorLabel: ParsedRecord["authorLabel"] = null;
 
     let idCount = 0;
     let dateCount = 0;
@@ -135,6 +136,16 @@ export function parseThreadDocument(
 
     for (const field of metaRes.fields) {
       const trimmedVal = field.value.trim(); // Trim horizontal ASCII whitespace
+
+      if (field.key === "author" && authorLabel === null) {
+        const displayValue = trimUnicodeWhitespace(field.value);
+        if (displayValue !== "") {
+          authorLabel = {
+            displayValue,
+            comparisonValue: displayValue.normalize("NFC")
+          };
+        }
+      }
       
       if (field.key === "id") {
         idCount++;
@@ -314,6 +325,7 @@ export function parseThreadDocument(
       id: recordId || "",
       date: recordDate || "",
       favorite: recordFavorite,
+      authorLabel,
       floorNumber,
       headingSpan: h.span,
       metadataSpan,

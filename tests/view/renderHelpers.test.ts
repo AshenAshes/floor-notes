@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { Component, MarkdownRenderer } from "obsidian";
+import { App, Component, MarkdownRenderer } from "obsidian";
 import type { ParsedRecord } from "../../src/format/types";
 import {
   createA11yButton,
   createA11yIconButton,
+  renderMarkdownBody,
   renderHeader,
   renderRecord
 } from "../../src/view/components/renderHelpers";
@@ -16,6 +17,12 @@ const record: ParsedRecord = {
   favorite: false,
   floorNumber: 1
 } as ParsedRecord;
+
+function createAppMock(): App {
+  const app = new App();
+  Object.assign(app.workspace, { openLinkText: vi.fn() });
+  return app;
+}
 
 describe("accessible button factories", () => {
   it("uses native button activation without invoking callbacks from keydown", () => {
@@ -98,8 +105,205 @@ describe("renderRecord semantic structure", () => {
   });
 });
 
-describe("renderRecord image labels", () => {
-  it("hides an automatic attachment filename without removing the image alt text", async () => {
+describe("Reply author block presentation", () => {
+  it("prefixes an ordinary first paragraph with a plain-text author label", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      const paragraph = container.createEl("p");
+      paragraph.textContent = "内容内容内容";
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+    const reply = {
+      ...record,
+      type: "reply",
+      floorNumber: null
+    } as ParsedRecord;
+
+    await renderRecord(
+      container,
+      reply,
+      "内容内容内容",
+      createAppMock(),
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      "Alice"
+    );
+
+    const article = container.querySelector<HTMLElement>("article.floor-notes-reply");
+    const paragraph = article?.querySelector<HTMLParagraphElement>(".floor-notes-body > p");
+    const label = paragraph?.querySelector<HTMLElement>(":scope > .floor-notes-reply-author");
+    expect(label?.textContent).toBe("Alice:");
+    expect(paragraph?.textContent).toBe("Alice: 内容内容内容");
+    expect(article?.querySelector(".floor-notes-reply-author-lead")).toBeNull();
+    expect(article?.querySelector<HTMLElement>("footer time.floor-notes-date")?.innerText).toBe(reply.date);
+  });
+
+  it("renders a plain-text lead before image-only and non-paragraph first blocks", async () => {
+    const cases = [
+      { tag: "h2", text: "Heading" },
+      { tag: "ul", text: "List item" },
+      { tag: "blockquote", text: "Quoted" },
+      { tag: "pre", text: "code" },
+      { tag: "table", text: "Cell" },
+      { tag: "p", text: "", imageOnly: true },
+      { tag: "p", text: "", imageOnly: true, comment: true }
+    ] as const;
+    const reply = {
+      ...record,
+      type: "reply",
+      floorNumber: null
+    } as ParsedRecord;
+
+    for (const testCase of cases) {
+      vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+        const block = container.ownerDocument.createElement(testCase.tag);
+        block.textContent = testCase.text;
+        if ("imageOnly" in testCase) {
+          block.appendChild(container.ownerDocument.createElement("img"));
+        }
+        if ("comment" in testCase) {
+          block.appendChild(container.ownerDocument.createComment("invisible note"));
+        }
+        container.appendChild(block);
+      });
+      const container = document.createElement("div");
+      const scope = new Component();
+      scope.load();
+
+      await renderRecord(
+        container,
+        reply,
+        "Body",
+        createAppMock(),
+        "thread.md",
+        scope,
+        () => {},
+        () => {},
+        () => {},
+        undefined,
+        "<b>Alice</b>"
+      );
+
+      const body = container.querySelector<HTMLElement>(".floor-notes-body");
+      const lead = body?.querySelector<HTMLElement>(":scope > .floor-notes-reply-author-lead");
+      expect(lead?.textContent).toBe("<b>Alice</b>:");
+      expect(body?.firstElementChild).toBe(lead);
+      expect(lead?.nextElementSibling?.tagName).toBe(testCase.tag.toUpperCase());
+      expect(lead?.querySelector("b")).toBeNull();
+    }
+  });
+
+  it("keeps the author inline when a paragraph mixes ordinary text with a nested image", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      const paragraph = container.createEl("p");
+      const link = paragraph.createEl("a");
+      link.append("正文");
+      link.createEl("img", { attr: { alt: "示意图" } });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+    const reply = {
+      ...record,
+      type: "reply",
+      floorNumber: null
+    } as ParsedRecord;
+
+    await renderRecord(
+      container,
+      reply,
+      "[正文 ![示意图](image.png)](target)",
+      createAppMock(),
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      "Alice"
+    );
+
+    const body = container.querySelector<HTMLElement>(".floor-notes-body");
+    const paragraph = body?.querySelector<HTMLParagraphElement>(":scope > p");
+    expect(paragraph?.textContent).toBe("Alice: 正文");
+    expect(paragraph?.querySelector(":scope > .floor-notes-reply-author")?.textContent).toBe("Alice:");
+    expect(body?.querySelector(".floor-notes-reply-author-lead")).toBeNull();
+  });
+});
+
+describe("T-072: Floor-only image descriptions and image body layout", () => {
+  it("does not apply floor-view image compatibility through the default preview entry", async () => {
+    const source = "![Pasted image](Pasted image 1784317969136.png)";
+    const render = vi.spyOn(MarkdownRenderer, "render").mockResolvedValueOnce(undefined);
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderMarkdownBody(container, source, createAppMock(), "thread.md", scope);
+
+    expect(render).toHaveBeenCalledWith(
+      expect.anything(),
+      source,
+      container,
+      "thread.md",
+      scope
+    );
+  });
+
+  it("does not add a Floor-only standard Markdown caption through the default preview entry", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/screen-photo.png",
+        label: "屏幕照片",
+        kind: "markdown"
+      });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderMarkdownBody(
+      container,
+      "![屏幕照片](attachments/screen-photo.png)",
+      createAppMock(),
+      "thread.md",
+      scope
+    );
+
+    expect(container.querySelector<HTMLImageElement>("img")?.alt).toBe("屏幕照片");
+    expect(container.querySelector(".floor-notes-image-description")).toBeNull();
+  });
+
+  it("does not add a Wiki image caption through the editor preview entry", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/screen-photo.png",
+        label: "屏幕照片"
+      });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderMarkdownBody(
+      container,
+      "![[attachments/screen-photo.png|屏幕照片]]",
+      createAppMock(),
+      "thread.md",
+      scope,
+      { showImageDescriptions: true }
+    );
+
+    expect(container.querySelector<HTMLImageElement>("img")?.alt).toBe("屏幕照片");
+    expect(container.querySelector(".floor-notes-image-description")).toBeNull();
+  });
+
+  it("hides an automatic attachment filename when image descriptions are enabled", async () => {
     vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
       appendRenderedImageFixture(container, {
         source: "attachments/file-20260810204041249.png",
@@ -119,7 +323,10 @@ describe("renderRecord image labels", () => {
       scope,
       () => {},
       () => {},
-      () => {}
+      () => {},
+      undefined,
+      undefined,
+      true
     );
 
     const embed = container.querySelector<HTMLElement>(".floor-notes-body .image-embed");
@@ -130,7 +337,7 @@ describe("renderRecord image labels", () => {
     expect(embed?.parentElement?.classList.contains("floor-notes-image-paragraph")).toBe(true);
   });
 
-  it("shows a meaningful image description supplied by the author", async () => {
+  it("does not show a meaningful Wiki image alias by default", async () => {
     vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
       appendRenderedImageFixture(container, {
         source: "attachments/file-20260810204041249.png",
@@ -158,12 +365,76 @@ describe("renderRecord image labels", () => {
     const description = embed?.querySelector<HTMLElement>(".floor-notes-image-description");
     expect(embed?.hasAttribute("alt")).toBe(false);
     expect(image?.alt).toBe("副屏配件");
-    expect(description?.innerText).toBe("副屏配件");
-    expect(description?.getAttribute("aria-hidden")).toBe("true");
+    expect(description).toBeNull();
     expect(embed?.parentElement?.classList.contains("floor-notes-image-paragraph")).toBe(true);
   });
 
-  it("keeps a standard Markdown image accessible and gives its image-only paragraph block flow", async () => {
+  it("shows a meaningful Wiki image alias when image descriptions are enabled", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/file-20260810204041249.png",
+        label: "副屏配件"
+      });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderRecord(
+      container,
+      record,
+      "![[attachments/file-20260810204041249.png|副屏配件]]",
+      { workspace: { openLinkText: vi.fn() } } as never,
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      undefined,
+      true
+    );
+
+    const embed = container.querySelector<HTMLElement>(".floor-notes-body .image-embed");
+    const image = embed?.querySelector<HTMLImageElement>("img");
+    const description = embed?.querySelector<HTMLElement>(".floor-notes-image-description");
+    expect(embed?.hasAttribute("alt")).toBe(false);
+    expect(image?.alt).toBe("副屏配件");
+    expect(description?.innerText).toBe("副屏配件");
+    expect(description?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("renders an Obsidian Markdown image whose local target contains unescaped spaces", async () => {
+    const source = "![Pasted image](Pasted image 1784317969136.png)";
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, markdown, container) => {
+      if (markdown === "![Pasted image](Pasted%20image%201784317969136.png)") {
+        appendRenderedImageFixture(container, {
+          source: "Pasted image 1784317969136.png",
+          label: "Pasted image",
+          kind: "markdown"
+        });
+      }
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderRecord(
+      container,
+      record,
+      source,
+      createAppMock(),
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {}
+    );
+
+    expect(container.querySelector<HTMLImageElement>(".floor-notes-body img")?.alt).toBe("Pasted image");
+  });
+
+  it("shows a standard Markdown image alias only when image descriptions are enabled", async () => {
     vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
       appendRenderedImageFixture(container, {
         source: "attachments/screen-photo.png",
@@ -184,16 +455,84 @@ describe("renderRecord image labels", () => {
       scope,
       () => {},
       () => {},
-      () => {}
+      () => {},
+      undefined,
+      undefined,
+      true
     );
 
     const image = container.querySelector<HTMLImageElement>(".floor-notes-body img");
+    const description = container.querySelector<HTMLElement>(".floor-notes-image-description");
     expect(image?.alt).toBe("屏幕照片");
-    expect(container.querySelector(".floor-notes-image-description")).toBeNull();
+    expect(description?.innerText).toBe("屏幕照片");
+    expect(description?.getAttribute("aria-hidden")).toBe("true");
     expect(image?.parentElement?.classList.contains("floor-notes-image-paragraph")).toBe(true);
   });
 
-  it("does not display an Obsidian image size as a description", async () => {
+  it("does not show a standard Markdown image alias by default", async () => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/screen-photo.png",
+        label: "屏幕照片",
+        kind: "markdown"
+      });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderRecord(
+      container,
+      record,
+      "![屏幕照片](attachments/screen-photo.png)",
+      createAppMock(),
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {}
+    );
+
+    expect(container.querySelector<HTMLImageElement>(".floor-notes-body img")?.alt).toBe("屏幕照片");
+    expect(container.querySelector(".floor-notes-image-description")).toBeNull();
+  });
+
+  it.each([
+    { label: "", expected: null },
+    { label: "|320", expected: null },
+    { label: "屏幕照片|320", expected: "屏幕照片" }
+  ])("shows an enabled standard Markdown caption only for a real alias: $label", async ({ label, expected }) => {
+    vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
+      appendRenderedImageFixture(container, {
+        source: "attachments/screen-photo.png",
+        label,
+        kind: "markdown"
+      });
+    });
+    const container = document.createElement("div");
+    const scope = new Component();
+    scope.load();
+
+    await renderRecord(
+      container,
+      record,
+      `![${label}](attachments/screen-photo.png)`,
+      createAppMock(),
+      "thread.md",
+      scope,
+      () => {},
+      () => {},
+      () => {},
+      undefined,
+      undefined,
+      true
+    );
+
+    expect(container.querySelector<HTMLElement>(".floor-notes-image-description")?.innerText ?? null)
+      .toBe(expected);
+  });
+
+  it("does not display an Obsidian image size when image descriptions are enabled", async () => {
     vi.spyOn(MarkdownRenderer, "render").mockImplementationOnce(async (_app, _markdown, container) => {
       appendRenderedImageFixture(container, {
         source: "attachments/screen-photo.png",
@@ -213,7 +552,10 @@ describe("renderRecord image labels", () => {
       scope,
       () => {},
       () => {},
-      () => {}
+      () => {},
+      undefined,
+      undefined,
+      true
     );
 
     const embed = container.querySelector<HTMLElement>(".floor-notes-body .image-embed");

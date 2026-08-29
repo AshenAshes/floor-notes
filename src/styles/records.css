@@ -33,6 +33,21 @@
   overflow-wrap: anywhere;
 }
 
+.floor-notes-reply-author {
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+  overflow-wrap: anywhere;
+}
+
+.floor-notes-reply-author-lead {
+  display: block;
+  margin-block-end: var(--size-4-1);
+}
+
+.floor-notes-reply-author-lead + :is(p, ul, ol, blockquote, pre, table, h1, h2, h3, h4, h5, h6) {
+  margin-top: 0;
+}
+
 .floor-notes-thread-view .floor-notes-body :is(a, a.external-link) {
   color: var(--link-color);
 }

@@ -5,6 +5,10 @@ import { parseThreadDocument } from "../format/parser";
 import { ParsedThreadDocument } from "../format/types";
 import { PreferredNewline, ThreadViewStyle } from "../settings/types";
 import {
+  setImageSize,
+  type SetImageSizeIntent
+} from "../format/imageSizing";
+import {
   OperationResult,
   addFloor,
   addReply,
@@ -144,5 +148,9 @@ export class ThreadMutationService {
 
   public async setViewStyle(file: TFile, desired: ThreadViewStyle): Promise<OperationResult> {
     return this.executeMutation(file, (doc) => setViewStyle(doc, desired, this.getPreferredNewline()));
+  }
+
+  public async setImageSize(file: TFile, intent: SetImageSizeIntent): Promise<OperationResult> {
+    return this.executeMutation(file, (doc) => setImageSize(doc, intent));
   }
 }

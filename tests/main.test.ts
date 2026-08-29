@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as obsidian from "obsidian";
 import FloorNotesPlugin from "../src/main";
+import zhCn from "../src/locales/zh-cn.json";
+import { t } from "../src/util/locale";
 import { FloorThreadView, VIEW_TYPE_THREAD } from "../src/view/FloorThreadView";
 import { FavoritesSidebarView } from "../src/view/FavoritesSidebarView";
+
+const { _testState } = obsidian as any;
 
 const makeFile = (path: string): obsidian.TFile => {
   const file = new obsidian.TFile();
@@ -355,6 +359,39 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
     expect(plugin.settings.theme).toBe("obsidian");
     expect(plugin.settings.mode).toBe("auto");
     expect(saveData).toHaveBeenCalledOnce();
+  });
+
+  it("loads image-description visibility only from a persisted boolean", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      showImageDescriptions: true
+    });
+
+    await plugin.onload();
+
+    expect(plugin.settings.showImageDescriptions).toBe(true);
+  });
+
+  it("keeps the Obsidian language for auto locale after reload and unrelated setting updates", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    _testState.language = "zh-cn";
+    vi.spyOn(plugin, "loadData").mockResolvedValue({ locale: "auto" });
+
+    try {
+      await plugin.onload();
+      expect(plugin.settings.locale).toBe("auto");
+      expect(t("settingsTitle")).toBe(zhCn.settingsTitle);
+
+      await plugin.updateSettings({ showImageDescriptions: true });
+      expect(plugin.settings.locale).toBe("auto");
+      expect(t("settingsTitle")).toBe(zhCn.settingsTitle);
+    } finally {
+      _testState.language = "en";
+    }
   });
 
   it("refreshes favorites after a locale change without recreating open thread views", async () => {

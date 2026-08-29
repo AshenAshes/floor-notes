@@ -44,6 +44,35 @@ function check() {
     failed = true;
   }
 
+  if (packageJson.name !== manifestJson.id) {
+    console.error(`Error: package.json name (${packageJson.name}) does not match manifest.json id (${manifestJson.id}).`);
+    failed = true;
+  }
+
+  if (packageJson.description !== manifestJson.description) {
+    console.error("Error: package.json description does not match manifest.json description.");
+    failed = true;
+  }
+
+  if (packageJson.author !== manifestJson.author) {
+    console.error(`Error: package.json author (${packageJson.author}) does not match manifest.json author (${manifestJson.author}).`);
+    failed = true;
+  }
+
+  const expectedPackageFiles = [
+    "LICENSE",
+    "README.md",
+    "README_CN.md",
+    "main.js",
+    "manifest.json",
+    "styles.css",
+    "versions.json"
+  ];
+  if (JSON.stringify(packageJson.files) !== JSON.stringify(expectedPackageFiles)) {
+    console.error("Error: package.json files must use the release allowlist and exclude private local artifacts.");
+    failed = true;
+  }
+
   if (!versionsJson[manifestVersion]) {
     console.error(`Error: versions.json is missing an entry for the current version (${manifestVersion}).`);
     failed = true;
@@ -80,7 +109,7 @@ function check() {
     }
   }
 
-  // 3. Verify test coverage for T-001 through T-071
+  // 3. Verify test coverage for T-001 through T-080
   const testFiles = walk("./tests");
   const testIds = new Set();
   const testIdMap = new Map(); // testId -> file path
@@ -102,7 +131,7 @@ function check() {
 
   // Check for missing IDs
   const missingIds = [];
-  for (let i = 1; i <= 71; i++) {
+  for (let i = 1; i <= 80; i++) {
     const id = `T-${String(i).padStart(3, "0")}`;
     if (!testIds.has(id)) {
       missingIds.push(id);
@@ -111,8 +140,6 @@ function check() {
 
   if (missingIds.length > 0) {
     console.warn(`Warning: Missing test implementations for: ${missingIds.join(", ")}`);
-    // Wait, the specification says: "the release check rejects missing or duplicate IDs."
-    // So we fail the check if there are missing IDs.
     failed = true;
   }
 
@@ -120,10 +147,6 @@ function check() {
   for (const [id, files] of testIdMap.entries()) {
     if (files.length > 1) {
       console.warn(`Warning: Duplicate test ID ${id} found in: ${files.join(", ")}`);
-      // Wait, is it okay to have multiple assertions or tests for the same ID across different files?
-      // "Every automated test name begins with exactly one ID from T-001 through T-071; the release check rejects missing or duplicate IDs."
-      // Since it says "projects missing or duplicate IDs", it means we must have exactly one test per ID, or at least they should be unique test cases.
-      // We will raise an error for duplicate IDs.
       failed = true;
     }
   }

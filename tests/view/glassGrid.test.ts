@@ -133,4 +133,60 @@ describe("Glass grid row spans", () => {
       value: previousResizeObserver
     });
   });
+
+  it("remeasures a glass card after its observed image changes the card height", () => {
+    const recordList = document.createElement("div");
+    const card = recordList.createDiv();
+    const setCssProps = vi.fn();
+    card.setCssProps = setCssProps;
+    let cardHeight = 80;
+    Object.defineProperty(card, "offsetHeight", {
+      configurable: true,
+      get: () => cardHeight
+    });
+    const scope = new Component();
+    const ownerWindow = recordList.ownerDocument.defaultView as Window & {
+      ResizeObserver?: unknown;
+    };
+    const previousResizeObserver = ownerWindow.ResizeObserver;
+    const getComputedStyle = vi.spyOn(ownerWindow, "getComputedStyle").mockReturnValue({
+      columnGap: "0",
+      getPropertyValue: () => "1"
+    } as unknown as CSSStyleDeclaration);
+    const requestAnimationFrame = vi.spyOn(ownerWindow, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 1;
+      });
+    let resizeCallback: ResizeObserverCallback | undefined;
+
+    class ResizeObserverMock {
+      public constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      public disconnect(): void {}
+      public observe(): void {}
+    }
+
+    Object.defineProperty(ownerWindow, "ResizeObserver", {
+      configurable: true,
+      value: ResizeObserverMock
+    });
+
+    enableGlassGridLayout(recordList, scope);
+    expect(setCssProps).toHaveBeenLastCalledWith({ "--floor-notes-glass-row-span": "80" });
+
+    cardHeight = 150;
+    resizeCallback?.([], {} as ResizeObserver);
+    expect(setCssProps).toHaveBeenLastCalledWith({ "--floor-notes-glass-row-span": "150" });
+
+    scope.unload();
+    Object.defineProperty(ownerWindow, "ResizeObserver", {
+      configurable: true,
+      value: previousResizeObserver
+    });
+    requestAnimationFrame.mockRestore();
+    getComputedStyle.mockRestore();
+  });
 });

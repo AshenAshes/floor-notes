@@ -13,6 +13,9 @@ Floor notes is an Obsidian plugin for forum-style notes, project discussions, de
 - Open all favorite floors from a dedicated sidebar and jump back to the source record.
 - Choose one of four layouts: **Bubble**, **Glass**, **Paper**, or **Timeline**.
 - Render record bodies as normal Markdown, including headings, lists, links, code blocks, tables, blockquotes, and internal links.
+- Conditionally show an existing lowercase `author` label on a reply when it differs from its parent floor.
+- Resize direct images by dragging their corner in desktop floor view, with the width saved in Obsidian-compatible Markdown.
+- Optionally show author-supplied image descriptions beneath images in floor view.
 - Switch between **Write** and **Preview** while composing; drafts are saved locally and can be restored or discarded.
 - Follow the Obsidian theme or choose a bundled palette such as Nord, Monokai, VS Code, Material, Claude, Dracula, Gruvbox, or Solarized.
 - Choose automatic, light, or dark mode for bundled palettes.
@@ -129,11 +132,22 @@ By default, `Automatically enable floor view` is enabled. When it is enabled, op
 - **Edit:** select the pencil icon on a floor or reply.
 - **Delete:** select the trash icon and confirm. Deleting a floor also deletes its replies.
 - **Favorite a floor:** select the star icon. Only floors can be favorited.
+- **Resize an image:** hover a direct image in desktop floor view and drag its bottom corner. Double-click the corner to remove the saved size.
 - **Change sort order:** select the up/down arrow in the header. The choice is written to the note and persists per note.
 - **Change layout:** select the palette icon and choose Bubble, Glass, Paper, or Timeline.
 - **Open source Markdown:** select the file-text icon in the header.
 
 The editor supports Markdown syntax highlighting, bold, italic, Markdown links, internal links, preview mode, emoji and kaomoji insertion, image paste, local draft recovery, and a character count. Create and edit dialogs keep the source text in the note format; they do not move records into a separate database.
+
+### Reply attribution and image controls
+
+- **Reply attribution:** If reply metadata contains lowercase `[author:: Bob]` and its parent floor has no effective author or a different author, floor view prefixes an ordinary reply paragraph with `Bob: content`. A body that begins with an image, list, heading, blockquote, code block, table, or another non-text block receives a separate `Bob:` lead line. A floor's own author is not shown. The label is display metadata rather than an account or permission identity, and the plugin does not add an author input or rewrite the field.
+- **Desktop image resizing:** A bottom-corner control appears for `![[image]]` and `![description](url)` images that floor view can map uniquely to the current record source. Dragging preserves the aspect ratio and saves an Obsidian-compatible width such as `![[image.png|description|320]]`; double-clicking the corner removes the saved size. If the record body changes before the width is saved, the plugin writes nothing and refreshes the floor view.
+- **Image actions:** Hovering a supported image reveals actions for opening the image viewer and editing the exact image source in the record dialog.
+- **Image descriptions:** The optional **Show image descriptions** setting is disabled by default. When enabled, floor view shows a meaningful author-supplied Wiki alias or inline Markdown description beneath the image. Automatic attachment filenames and size-only labels remain hidden.
+- **Safe degradation:** Mobile, editor preview, and native Obsidian views do not receive Floor Notes resize controls or description titles. HTML images, reference-style images, images rendered through embedded notes, and ambiguous rendered images remain visible without a resize control.
+
+These capabilities retain the `floor-notes: 1` file format. Reply attribution and desktop resizing do not add settings; only image-description visibility is configurable.
 
 ### Browse favorites
 
@@ -151,6 +165,7 @@ Open **Settings → Community plugins → Floor notes**. The available options a
 | Theme | Use the host Obsidian theme or a bundled palette. |
 | Color mode | Follow Obsidian, use light, or use dark mode for bundled palettes. |
 | Default view style | Fallback layout for new or unspecified notes. |
+| Show image descriptions | Show meaningful author-supplied image descriptions beneath images in floor view; disabled by default. |
 | Automatically enable floor view | Route configured notes to the thread view when they are opened. |
 
 ## Thread file format
@@ -196,6 +211,7 @@ Replies are attached to the closest preceding floor.
 - `id` and `date` are required. IDs are generated in the form `floor-YYYYMMDD-HHMMSS-suffix` or `reply-YYYYMMDD-HHMMSS-suffix` and must be unique within the file.
 - The generated suffix uses eight characters from the plugin's safe alphanumeric alphabet. Do not reuse an ID or change a floor ID into a reply ID.
 - `[favorite:: true]` is optional and is allowed only for floors. A reply cannot contain a favorite field.
+- Lowercase `[author:: name]` is optional display metadata. It remains non-reserved and is shown only on a reply whose effective label differs from, or has no counterpart on, its parent floor.
 - Keep the body below the terminating blank line. It can contain normal Markdown, including fenced code; headings inside fenced code are not treated as records.
 - A first-level `# Title` before the first record becomes the thread title. If it is absent, the filename is used.
 

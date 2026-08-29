@@ -7,6 +7,7 @@ import { t } from "../util/locale";
 import { FloorNotesSettings, DEFAULT_SETTINGS, THREAD_VIEW_STYLES, ThreadViewStyle } from "../settings/types";
 import { applyThemeClasses } from "../theme";
 import { enableGlassGridLayout } from "./glassGrid";
+import { attachImageResizeControls } from "./imageResizeControl";
 import {
   renderHeader,
   renderRecord,
@@ -15,7 +16,8 @@ import {
 import {
   CreateRecordModal,
   EditRecordModal,
-  DeleteConfirmModal
+  DeleteConfirmModal,
+  type EditorSelectionRange
 } from "../modals/ThreadModals";
 
 export const VIEW_TYPE_THREAD = "floor-notes-thread";
@@ -435,7 +437,11 @@ export class FloorThreadView extends FileView {
       modal.open();
     };
 
-    const handleEdit = (record: ParsedRecord, oldBodyText: string) => {
+    const handleEdit = (
+      record: ParsedRecord,
+      oldBodyText: string,
+      initialSelection?: EditorSelectionRange
+    ) => {
       if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) return;
       const triggerButton = this.contentEl.ownerDocument.activeElement as HTMLElement;
       const isFloor = record.type === "floor";
@@ -454,7 +460,8 @@ export class FloorThreadView extends FileView {
           this.restoreTriggerFocus(triggerButton);
         },
         this.settings,
-        doc.effectiveViewStyle
+        doc.effectiveViewStyle,
+        initialSelection
       );
       modal.open();
     };
@@ -522,6 +529,30 @@ export class FloorThreadView extends FileView {
       if (this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) {
         void this.mutationService.setFavorite(file, record.id, !record.favorite);
       }
+    };
+
+    const attachImageResizeControl = (
+      recordEl: HTMLElement,
+      record: ParsedRecord,
+      bodyText: string
+    ): void => {
+      attachImageResizeControls({
+        recordEl,
+        recordId: record.id,
+        bodyText,
+        scope,
+        resizeLabel: t("resizeImage"),
+        openImageLabel: t("zoomIn"),
+        closeImageLabel: t("closeImageViewer"),
+        openSourceLabel: t("editBlock"),
+        isActive: () => this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch),
+        openSource: (selection) => handleEdit(record, bodyText, selection),
+        commit: (intent) => this.mutationService.setImageSize(file, intent),
+        onRejected: async (kind) => {
+          new Notice(t(kind === "conflict" ? "imageResizeConflict" : "operationFailed"));
+          await this.requestGeneration();
+        }
+      });
     };
 
     // Group records into Floors and their nested replies
@@ -594,7 +625,7 @@ export class FloorThreadView extends FileView {
 
       // Render floor
       const floorBody = doc.rawText.substring(group.floor.bodySpan.start, group.floor.bodySpan.end);
-      await renderRecord(
+      const floorRecordEl = await renderRecord(
         floorGroupEl,
         group.floor,
         floorBody,
@@ -604,8 +635,11 @@ export class FloorThreadView extends FileView {
         () => handleReply(group.floor.id),
         () => handleEdit(group.floor, floorBody),
         () => handleDelete(group.floor),
-        () => handleToggleFavorite(group.floor)
+        () => handleToggleFavorite(group.floor),
+        undefined,
+        this.settings.showImageDescriptions
       );
+      attachImageResizeControl(floorRecordEl, group.floor, floorBody);
 
       // Render nested replies
       if (group.replies.length > 0) {
@@ -615,7 +649,12 @@ export class FloorThreadView extends FileView {
           if (!this.isGenerationCurrent(thisGen, file, identityToken, identityEpoch)) return;
 
           const replyBody = doc.rawText.substring(reply.bodySpan.start, reply.bodySpan.end);
-          await renderRecord(
+          const replyAuthorLabel = reply.authorLabel
+            && (!group.floor.authorLabel
+              || reply.authorLabel.comparisonValue !== group.floor.authorLabel.comparisonValue)
+            ? reply.authorLabel.displayValue
+            : undefined;
+          const replyRecordEl = await renderRecord(
             repliesEl,
             reply,
             replyBody,
@@ -624,8 +663,12 @@ export class FloorThreadView extends FileView {
             scope,
             () => {}, // Replies do not have reply buttons
             () => handleEdit(reply, replyBody),
-            () => handleDelete(reply)
+            () => handleDelete(reply),
+            undefined,
+            replyAuthorLabel,
+            this.settings.showImageDescriptions
           );
+          attachImageResizeControl(replyRecordEl, reply, replyBody);
         }
         if (visibleReplies < group.replies.length) {
           const loadMore = repliesEl.createEl("button", {

@@ -65,10 +65,14 @@ export default class FloorNotesPlugin extends Plugin {
       autoOpenThreadView: typeof source.autoOpenThreadView === "boolean"
         ? source.autoOpenThreadView
         : DEFAULT_SETTINGS.autoOpenThreadView,
+      showImageDescriptions: typeof source.showImageDescriptions === "boolean"
+        ? source.showImageDescriptions
+        : DEFAULT_SETTINGS.showImageDescriptions,
       defaultViewStyle: resolvedViewStyle
     };
     const persistedKeys = [
-      "preferredNewline", "defaultSortOrder", "locale", "theme", "mode", "autoOpenThreadView", "defaultViewStyle"
+      "preferredNewline", "defaultSortOrder", "locale", "theme", "mode", "autoOpenThreadView",
+      "showImageDescriptions", "defaultViewStyle"
     ];
     const shouldPersistNormalizedSettings =
       source.replyStyle !== undefined ||

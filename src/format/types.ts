@@ -46,11 +46,17 @@ export interface ParsedField {
   readonly fullSpan: Span;
 }
 
+export interface RecordAuthorLabel {
+  readonly displayValue: string;
+  readonly comparisonValue: string;
+}
+
 export interface ParsedRecord {
   readonly type: "floor" | "reply";
   readonly id: string;
   readonly date: string;
   readonly favorite: boolean;
+  readonly authorLabel: RecordAuthorLabel | null;
   readonly floorNumber: number | null; // Bound during physical ordering
   readonly headingSpan: Span;
   readonly metadataSpan: Span; // Span of metadata block including terminator

@@ -4,8 +4,9 @@ import { FloorThreadView } from "../../src/view/FloorThreadView";
 import { FileIdentityRegistry } from "../../src/services/FileIdentityRegistry";
 import { ThreadMutationService } from "../../src/services/ThreadMutationService";
 import { FloorNotesSettingTab } from "../../src/settings/settingsTab";
-import { CreateRecordModal } from "../../src/modals/ThreadModals";
-import { DEFAULT_SETTINGS } from "../../src/settings/types";
+import { CreateRecordModal, EditRecordModal } from "../../src/modals/ThreadModals";
+import { DEFAULT_SETTINGS, THREAD_VIEW_STYLES } from "../../src/settings/types";
+import { THEME_OPTIONS } from "../../src/theme";
 import { setLocale } from "../../src/util/locale";
 import en from "../../src/locales/en.json";
 import zhCn from "../../src/locales/zh-cn.json";
@@ -549,6 +550,779 @@ Reply body.
   });
 });
 
+describe("T-075: Reply author conditions in Floor view", () => {
+  it("uses physical Parent Floor labels across ascending and descending display order", async () => {
+    const longAuthor = `${"Long author ".repeat(20)}👩🏽‍💻`;
+    const source = `---
+floor-notes: 1
+floor-notes-sort: desc
+---
+## Floor
+[id:: floor-20260716-153012-abcde123]
+[date:: 2026-07-16 15:30:12]
+[author:: A\u030A]
+
+Floor one.
+
+### Reply
+[id:: reply-20260716-153112-xyz09876]
+[date:: 2026-07-16 15:31:12]
+[author:: Å]
+
+Equivalent author.
+
+### Reply
+[id:: reply-20260716-153212-qrstvwxy]
+[date:: 2026-07-16 15:32:12]
+[author:: Alice]
+
+Different author.
+
+## Floor
+[id:: floor-20260716-153312-bcdef234]
+[date:: 2026-07-16 15:33:12]
+
+Floor two.
+
+### Reply
+[id:: reply-20260716-153412-cdefg345]
+[date:: 2026-07-16 15:34:12]
+[author:: Bob]
+
+Parent has no author.
+
+## Floor
+[id:: floor-20260716-153512-defgh456]
+[date:: 2026-07-16 15:35:12]
+[author:: Alice]
+
+Floor three.
+
+### Reply
+[id:: reply-20260716-153612-efghj567]
+[date:: 2026-07-16 15:36:12]
+
+Reply has no author.
+
+### Reply
+[id:: reply-20260716-153712-fghjk678]
+[date:: 2026-07-16 15:37:12]
+[author:: alice]
+
+Case-sensitive difference.
+
+### Reply
+[id:: reply-20260716-153812-ghjkm789]
+[date:: 2026-07-16 15:38:12]
+[author:: ${longAuthor}]
+
+Long emoji author.
+
+### Reply
+[id:: reply-20260716-153912-hjkmn890]
+[date:: 2026-07-16 15:39:12]
+
+Reply has no author.
+`;
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: {
+        read: vi.fn().mockResolvedValue(source),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const app = new obsidian.App();
+    Object.assign(app.vault, appMock.vault);
+    Object.assign(app.workspace, appMock.workspace);
+    const leaf = new obsidian.WorkspaceLeaf();
+    const service = new ThreadMutationService(app, registry);
+    const view = new FloorThreadView(leaf, registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, markdown, container) => {
+        const paragraph = container.ownerDocument.createElement("p");
+        paragraph.textContent = markdown.trim();
+        container.appendChild(paragraph);
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+
+      const record = (id: string) => view.contentEl.querySelector<HTMLElement>(`[data-record-id="${id}"]`);
+      const expectAuthorLabels = () => {
+        expect(view.contentEl.querySelectorAll(".floor-notes-floor .floor-notes-reply-author")).toHaveLength(0);
+        expect(record("reply-20260716-153112-xyz09876")?.querySelector(".floor-notes-reply-author")).toBeNull();
+        expect(record("reply-20260716-153212-qrstvwxy")?.querySelector(".floor-notes-reply-author")?.textContent).toBe("Alice:");
+        expect(record("reply-20260716-153412-cdefg345")?.querySelector(".floor-notes-reply-author")?.textContent).toBe("Bob:");
+        expect(record("reply-20260716-153612-efghj567")?.querySelector(".floor-notes-reply-author")).toBeNull();
+        expect(record("reply-20260716-153712-fghjk678")?.querySelector(".floor-notes-reply-author")?.textContent).toBe("alice:");
+        expect(record("reply-20260716-153812-ghjkm789")?.querySelector(".floor-notes-reply-author")?.textContent).toBe(`${longAuthor}:`);
+        expect(record("reply-20260716-153912-hjkmn890")?.querySelector(".floor-notes-reply-author")).toBeNull();
+        expect(view.contentEl.querySelectorAll(".floor-notes-reply .floor-notes-reply-author")).toHaveLength(4);
+      };
+
+      expectAuthorLabels();
+      appMock.vault.read.mockResolvedValue(source.replace("floor-notes-sort: desc", "floor-notes-sort: asc"));
+      await view.requestGeneration();
+      expectAuthorLabels();
+      expect(appMock.vault.process).not.toHaveBeenCalled();
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("keeps Parent Floor comparison stable across pagination and loading more replies", async () => {
+    const precedingFloors = Array.from({ length: 30 }, (_, index) => {
+      const suffix = String(index + 1).padStart(8, "0");
+      return `## Floor
+[id:: floor-20260716-120000-${suffix}]
+[date:: 2026-07-16 12:00:00]
+
+Floor ${index + 1}.`;
+    }).join("\n\n");
+    const replies = Array.from({ length: 51 }, (_, index) => {
+      const replyNumber = index + 1;
+      const suffix = String(10_000_000 + replyNumber);
+      const author = replyNumber === 51 ? "Bob" : "Alice";
+      return `### Reply
+[id:: reply-20260716-130000-${suffix}]
+[date:: 2026-07-16 13:00:00]
+[author:: ${author}]
+
+Reply ${replyNumber}.`;
+    }).join("\n\n");
+    const source = `---
+floor-notes: 1
+floor-notes-sort: asc
+---
+${precedingFloors}
+
+## Floor
+[id:: floor-20260716-120000-00000031]
+[date:: 2026-07-16 12:00:00]
+[author:: Alice]
+
+Floor 31.
+
+${replies}
+`;
+    const registry = new FileIdentityRegistry();
+    const appMock = {
+      vault: {
+        read: vi.fn().mockResolvedValue(source),
+        process: vi.fn()
+      },
+      workspace: {
+        requestSaveLayout: vi.fn()
+      }
+    };
+    const app = new obsidian.App();
+    Object.assign(app.vault, appMock.vault);
+    Object.assign(app.workspace, appMock.workspace);
+    const leaf = new obsidian.WorkspaceLeaf();
+    const service = new ThreadMutationService(app, registry);
+    const view = new FloorThreadView(leaf, registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, markdown, container) => {
+        const paragraph = container.ownerDocument.createElement("p");
+        paragraph.textContent = markdown.trim();
+        container.appendChild(paragraph);
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      expect(view.contentEl.querySelector('[data-record-id="floor-20260716-120000-00000031"]')).toBeNull();
+
+      const requestGeneration = vi.spyOn(view, "requestGeneration");
+      const paginationButtons = view.contentEl.querySelectorAll<HTMLButtonElement>(".floor-notes-pagination-btn");
+      expect(paginationButtons).toHaveLength(2);
+      paginationButtons[1]!.click();
+
+      expect(requestGeneration).toHaveBeenCalledTimes(1);
+      await requestGeneration.mock.results[0]!.value;
+      const pageTwoRecordIds = Array.from(view.contentEl.querySelectorAll<HTMLElement>("[data-record-id]"))
+        .map((element) => element.dataset.recordId);
+      expect(pageTwoRecordIds).toContain("floor-20260716-120000-00000031");
+      expect(view.contentEl.querySelectorAll(".floor-notes-reply .floor-notes-reply-author")).toHaveLength(0);
+
+      const loadMore = view.contentEl.querySelector<HTMLButtonElement>(".floor-notes-load-more-replies");
+      expect(loadMore).not.toBeNull();
+      loadMore?.click();
+
+      expect(requestGeneration).toHaveBeenCalledTimes(2);
+      await requestGeneration.mock.results[1]!.value;
+      expect(view.contentEl.querySelector(
+        '[data-record-id="reply-20260716-130000-10000051"] .floor-notes-reply-author'
+      )?.textContent).toBe("Bob:");
+      expect(view.contentEl.querySelectorAll(".floor-notes-reply .floor-notes-reply-author")).toHaveLength(1);
+      expect(appMock.vault.process).not.toHaveBeenCalled();
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+});
+
+describe("T-078: Direct image resize control", () => {
+  beforeEach(() => {
+    setLocale("en");
+    Reflect.set(obsidian.Platform, "isMobile", false);
+    Reflect.set(obsidian.Platform, "isDesktop", true);
+  });
+
+  afterEach(() => {
+    Reflect.set(obsidian.Platform, "isMobile", false);
+    Reflect.set(obsidian.Platform, "isDesktop", true);
+  });
+
+  it("uses the native image wrapper hierarchy with semantic actions and one resize control", async () => {
+    const source = validBaseDoc.replace("Body content.", "Before ![[photo.png]] after");
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const leaf = new obsidian.WorkspaceLeaf();
+    const view = new FloorThreadView(leaf, registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        const paragraph = container.createEl("p");
+        const embed = paragraph.createSpan({ cls: "image-embed" });
+        embed.createEl("img", { attr: { src: "app://rendered-resource" } });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+
+      const root = view.contentEl.querySelector<HTMLElement>(".floor-notes-resizable-image");
+      const imageWrapper = root?.querySelector<HTMLElement>(":scope > .floor-notes-image-wrapper");
+      const handle = imageWrapper?.querySelector<HTMLButtonElement>(":scope > .floor-notes-image-resize-handle");
+      expect(root?.tagName).toBe("DIV");
+      expect(imageWrapper?.tagName).toBe("DIV");
+      expect(imageWrapper?.querySelector(":scope > img")).not.toBeNull();
+      expect(handle).not.toBeNull();
+      expect(handle?.type).toBe("button");
+      expect(handle?.parentElement).toBe(imageWrapper);
+      expect(view.contentEl.querySelectorAll(".floor-notes-image-resize-handle")).toHaveLength(1);
+
+      const actions = root?.querySelector<HTMLElement>(":scope > .floor-notes-image-actions");
+      const openImage = actions?.querySelector<HTMLButtonElement>(".floor-notes-image-action-open");
+      const openSource = actions?.querySelector<HTMLButtonElement>(".floor-notes-image-action-source");
+      expect(actions).not.toBeNull();
+      expect(actions?.tagName).toBe("DIV");
+      expect(openImage?.type).toBe("button");
+      expect(openSource?.type).toBe("button");
+      expect(openImage?.getAttribute("aria-label")).toBe(en.zoomIn);
+      expect(openSource?.getAttribute("aria-label")).toBe(en.editBlock);
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("keeps the accepted resize wrapper and control across every layout and theme", async () => {
+    const source = validBaseDoc.replace("Body content.", "![[photo.png]]");
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        container.createEl("img", { attr: { src: "app://rendered-resource" } });
+      }
+    );
+
+    try {
+      for (const viewStyle of THREAD_VIEW_STYLES) {
+        for (const theme of THEME_OPTIONS) {
+          const app = new obsidian.App();
+          Object.assign(app.vault, {
+            read: vi.fn().mockResolvedValue(source),
+            process: vi.fn()
+          });
+          const registry = new FileIdentityRegistry();
+          const service = new ThreadMutationService(app, registry);
+          const view = new FloorThreadView(
+            new obsidian.WorkspaceLeaf(),
+            registry,
+            service,
+            { ...DEFAULT_SETTINGS, defaultViewStyle: viewStyle, theme: theme.id }
+          );
+          view.app = app;
+          const file = mockTFile(`${viewStyle}-${theme.id}.md`, `${viewStyle}-${theme.id}.md`);
+
+          try {
+            await view.onLoadFile(file);
+            expect(view.contentEl.classList.contains(`floor-notes-view-style-${viewStyle}`)).toBe(true);
+            expect(view.contentEl.classList.contains(`theme-${theme.id}`)).toBe(true);
+            expect(view.contentEl.querySelectorAll(".floor-notes-resizable-image")).toHaveLength(1);
+            expect(view.contentEl.querySelectorAll(".floor-notes-image-resize-handle")).toHaveLength(1);
+          } finally {
+            await view.onUnloadFile(file);
+          }
+        }
+      }
+    } finally {
+      render.mockRestore();
+    }
+  });
+
+  it("opens the native-style focused lightbox and closes it with Escape", async () => {
+    const source = validBaseDoc.replace("Body content.", "![[assets/photo.png]]");
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    Object.assign(app.workspace, { openLinkText: vi.fn().mockResolvedValue(undefined) });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    document.body.appendChild(view.contentEl);
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        container.createEl("img", {
+          attr: { src: "app://rendered-photo", alt: "photo.png" }
+        });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      const trigger = view.contentEl.querySelector<HTMLButtonElement>(".floor-notes-image-action-open")!;
+      trigger.focus();
+      trigger.click();
+
+      const lightbox = document.body.querySelector<HTMLElement>(".floor-notes-image-lightbox");
+      expect(lightbox).not.toBeNull();
+      expect(document.activeElement).toBe(lightbox);
+      const lightboxImage = lightbox?.querySelector<HTMLImageElement>("img");
+      const lightboxContent = lightbox?.querySelector<HTMLElement>(
+        ".floor-notes-image-lightbox-content"
+      );
+      expect(lightboxImage?.getAttribute("src")).toBe("app://rendered-photo");
+      expect(lightbox?.querySelector(".floor-notes-image-lightbox-titlebar-text")?.textContent).toBe("photo.png");
+
+      lightbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "=", bubbles: true }));
+      expect(lightboxImage?.style.transform).toContain("scale(1.2)");
+      lightbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "=", bubbles: true }));
+      expect(lightboxImage?.style.transform).toContain("scale(1.5)");
+      lightbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "-", bubbles: true }));
+      expect(lightboxImage?.style.transform).toContain("scale(1.2)");
+      lightbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "-", bubbles: true }));
+      expect(lightboxImage?.style.transform).toContain("scale(1)");
+
+      const plainWheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -150
+      });
+      lightboxContent?.dispatchEvent(plainWheel);
+      expect(plainWheel.defaultPrevented).toBe(false);
+      expect(lightboxImage?.style.transform).toContain("scale(1)");
+
+      const modifiedWheel = new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        deltaY: -150
+      });
+      lightboxContent?.dispatchEvent(modifiedWheel);
+      expect(modifiedWheel.defaultPrevented).toBe(true);
+      expect(lightboxImage?.style.transform).toContain("scale(2)");
+
+      lightbox?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+      expect(document.body.querySelector(".floor-notes-image-lightbox")).toBe(lightbox);
+      lightbox?.dispatchEvent(new KeyboardEvent("keyup", { key: " ", bubbles: true }));
+      expect(document.body.querySelector(".floor-notes-image-lightbox")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+
+      trigger.click();
+      const reopenedLightbox = document.body.querySelector<HTMLElement>(
+        ".floor-notes-image-lightbox"
+      );
+      reopenedLightbox?.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true
+      }));
+      expect(document.body.querySelector(".floor-notes-image-lightbox")).toBeNull();
+      expect(document.activeElement).toBe(trigger);
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+      document.body.querySelector(".floor-notes-image-lightbox")?.remove();
+      view.contentEl.remove();
+    }
+  });
+
+  it("opens the Record editor focused on only the clicked image target", async () => {
+    const body = [
+      "Before",
+      "![[assets/first.png|250]]",
+      "![description|300](assets/photo\\(1\\).png \"kept title\")",
+      "After"
+    ].join("\n");
+    const source = validBaseDoc.replace("Body content.", body);
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const leaf = new obsidian.WorkspaceLeaf();
+    const setViewState = vi.spyOn(leaf, "setViewState");
+    const view = new FloorThreadView(leaf, registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        container.createEl("img", { attr: { src: "app://rendered-first" } });
+        container.createEl("img", { attr: { src: "app://rendered-photo" } });
+      }
+    );
+    const openedModals: EditRecordModal[] = [];
+    const openModal = vi.spyOn(EditRecordModal.prototype, "open").mockImplementation(function (
+      this: EditRecordModal
+    ) {
+      openedModals.push(this);
+      document.body.appendChild(this.contentEl);
+      this.onOpen();
+    });
+    const file = mockTFile("image-actions-thread.md", "image-actions-thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      view.contentEl.querySelectorAll<HTMLButtonElement>(
+        ".floor-notes-image-action-source"
+      )[1]?.click();
+
+      const openedModal = openedModals[0];
+      expect(openedModal).toBeDefined();
+      expect(setViewState).not.toHaveBeenCalled();
+      const editorView = (openedModal as unknown as {
+        editorView: import("@codemirror/view").EditorView | null;
+      }).editorView;
+      expect(editorView).not.toBeNull();
+      const target = "assets/photo\\(1\\).png";
+      const targetStart = body.indexOf(target);
+      const targetEnd = targetStart + target.length;
+      await vi.waitFor(() => {
+        expect(editorView?.state.selection.main.from).toBe(targetStart);
+        expect(editorView?.state.selection.main.to).toBe(targetEnd);
+        expect(editorView?.state.sliceDoc(targetStart, targetEnd)).toBe(target);
+        expect(editorView?.hasFocus).toBe(true);
+      });
+    } finally {
+      for (const openedModal of openedModals) {
+        openedModal.close();
+        openedModal.contentEl.remove();
+      }
+      await view.onUnloadFile(file);
+      openModal.mockRestore();
+      render.mockRestore();
+    }
+  });
+
+  it("T-079: previews a proportional clamped drag and commits its rounded width exactly once", async () => {
+    const source = validBaseDoc.replace("Body content.", "![[photo.png]]");
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const resize = vi.spyOn(service, "setImageSize").mockResolvedValue({ type: "no-op" });
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        const paragraph = container.createEl("p");
+        const embed = paragraph.createSpan({ cls: "image-embed" });
+        embed.createEl("img", { attr: { src: "app://rendered-resource" } });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      const handle = view.contentEl.querySelector<HTMLButtonElement>(".floor-notes-image-resize-handle")!;
+      const image = view.contentEl.querySelector<HTMLImageElement>(".floor-notes-image-wrapper > img")!;
+      const recordContent = view.contentEl.querySelector<HTMLElement>(".floor-notes-record-content")!;
+      vi.spyOn(image, "getBoundingClientRect").mockReturnValue({
+        width: 200,
+        height: 100
+      } as DOMRect);
+      vi.spyOn(recordContent, "getBoundingClientRect").mockReturnValue({
+        width: 350,
+        height: 500
+      } as DOMRect);
+
+      handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 100 }));
+      document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 260 }));
+      document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 275 }));
+
+      expect(image.style.width).toBe("350px");
+      expect(image.style.height).toBe("175px");
+      expect(resize).not.toHaveBeenCalled();
+
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 275 }));
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 275 }));
+
+      await vi.waitFor(() => expect(resize).toHaveBeenCalledOnce());
+      expect(resize.mock.calls[0]?.[1]).toMatchObject({
+        recordId: "floor-20260716-153012-abcde123",
+        expectedBody: "![[photo.png]]",
+        desiredWidth: 350
+      });
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("keeps the resize control after a saved width is rendered again", async () => {
+    let currentSource = validBaseDoc.replace("Body content.", "![[photo.png]]");
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn(async () => currentSource),
+      process: vi.fn(async (_file, callback: (data: string) => string | Promise<string>) => {
+        currentSource = await callback(currentSource);
+        return currentSource;
+      })
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        const paragraph = container.createEl("p");
+        paragraph.createEl("img", { attr: { src: "app://rendered-resource" } });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      const handle = view.contentEl.querySelector<HTMLButtonElement>(".floor-notes-image-resize-handle")!;
+      const image = view.contentEl.querySelector<HTMLImageElement>(".floor-notes-image-wrapper > img")!;
+      const recordContent = view.contentEl.querySelector<HTMLElement>(".floor-notes-record-content")!;
+      vi.spyOn(image, "getBoundingClientRect").mockReturnValue({ width: 200, height: 100 } as DOMRect);
+      vi.spyOn(recordContent, "getBoundingClientRect").mockReturnValue({ width: 400 } as DOMRect);
+
+      handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 100 }));
+      document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 150 }));
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 150 }));
+      await vi.waitFor(() => expect(currentSource).toContain("![[photo.png|250]]"));
+
+      await view.requestGeneration();
+
+      expect(view.contentEl.querySelector(".floor-notes-image-resize-handle")).not.toBeNull();
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("adds a resize control when an edited floor gains a Markdown image with spaces in its target", async () => {
+    const imageBody = "![Pasted image](Pasted image 1784317969136.png)";
+    let currentSource = validBaseDoc;
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn(async () => currentSource),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, markdown, container) => {
+        if (markdown.includes("Pasted image")) {
+          container.createEl("img", { attr: { src: "app://rendered-pasted-image" } });
+        }
+      }
+    );
+    const file = mockTFile("edited-image-thread.md", "edited-image-thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      expect(view.contentEl.querySelector(".floor-notes-image-resize-handle")).toBeNull();
+
+      currentSource = validBaseDoc.replace("Body content.", imageBody);
+      await view.requestGeneration();
+
+      expect(view.contentEl.querySelector(".floor-notes-image-wrapper > img")).not.toBeNull();
+      expect(view.contentEl.querySelector(".floor-notes-image-resize-handle")).not.toBeNull();
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("maps repeated paths by occurrence order and resets only the double-clicked image", async () => {
+    const body = "![[same.png|150]] and ![second|225](same.png)";
+    const source = validBaseDoc.replace("Body content.", body);
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const setImageSize = vi.spyOn(service, "setImageSize").mockResolvedValue({ type: "no-op" });
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        const paragraph = container.createEl("p");
+        paragraph.createEl("img", { attr: { src: "app://same-first" } });
+        paragraph.createEl("img", { attr: { src: "app://same-second" } });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      const handles = view.contentEl.querySelectorAll<HTMLButtonElement>(
+        ".floor-notes-image-resize-handle"
+      );
+      expect(handles).toHaveLength(2);
+
+      handles[1]?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, button: 0 }));
+
+      await vi.waitFor(() => expect(setImageSize).toHaveBeenCalledOnce());
+      expect(setImageSize.mock.calls[0]?.[1]).toMatchObject({
+        recordId: "floor-20260716-153012-abcde123",
+        expectedBody: body,
+        occurrence: {
+          syntax: "markdown",
+          originalToken: "![second|225](same.png)"
+        },
+        desiredWidth: null
+      });
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("restores the local preview, refreshes, and shows a localized notice on conflict", async () => {
+    _testState.notices.length = 0;
+    const source = validBaseDoc.replace("Body content.", "![[photo.png]]");
+    const app = new obsidian.App();
+    Object.assign(app.vault, {
+      read: vi.fn().mockResolvedValue(source),
+      process: vi.fn()
+    });
+    const registry = new FileIdentityRegistry();
+    const service = new ThreadMutationService(app, registry);
+    const resize = vi.spyOn(service, "setImageSize").mockResolvedValue({
+      type: "conflict",
+      reason: "body changed"
+    });
+    const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+    view.app = app;
+    const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementation(
+      async (_app, _markdown, container) => {
+        const paragraph = container.createEl("p");
+        const embed = paragraph.createSpan({ cls: "image-embed" });
+        embed.createEl("img", {
+          attr: { src: "app://rendered-resource", style: "width: 80%;" }
+        });
+      }
+    );
+    const file = mockTFile("thread.md", "thread.md");
+
+    try {
+      await view.onLoadFile(file);
+      const requestGeneration = vi.spyOn(view, "requestGeneration");
+      const handle = view.contentEl.querySelector<HTMLButtonElement>(".floor-notes-image-resize-handle")!;
+      const image = view.contentEl.querySelector<HTMLImageElement>(".floor-notes-image-wrapper > img")!;
+      const recordContent = view.contentEl.querySelector<HTMLElement>(".floor-notes-record-content")!;
+      vi.spyOn(image, "getBoundingClientRect").mockReturnValue({ width: 200, height: 100 } as DOMRect);
+      vi.spyOn(recordContent, "getBoundingClientRect").mockReturnValue({ width: 400 } as DOMRect);
+
+      handle.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 100 }));
+      document.dispatchEvent(new MouseEvent("pointermove", { bubbles: true, clientX: 150 }));
+      expect(image.style.width).toBe("250px");
+      document.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 150 }));
+
+      await vi.waitFor(() => expect(requestGeneration).toHaveBeenCalledOnce());
+      expect(resize).toHaveBeenCalledOnce();
+      expect(image.style.width).toBe("80%");
+      expect(_testState.notices.at(-1)?.message).toBe(en.imageResizeConflict);
+      await requestGeneration.mock.results[0]?.value;
+    } finally {
+      await view.onUnloadFile(file);
+      render.mockRestore();
+    }
+  });
+
+  it("fails closed for mobile rendering and ambiguous rendered images", async () => {
+    const renderCase = async (source: string, isMobile: boolean, imageCount: number): Promise<number> => {
+      Reflect.set(obsidian.Platform, "isMobile", isMobile);
+      Reflect.set(obsidian.Platform, "isDesktop", !isMobile);
+      const app = new obsidian.App();
+      Object.assign(app.vault, { read: vi.fn().mockResolvedValue(source), process: vi.fn() });
+      const registry = new FileIdentityRegistry();
+      const service = new ThreadMutationService(app, registry);
+      const view = new FloorThreadView(new obsidian.WorkspaceLeaf(), registry, service);
+      view.app = app;
+      const render = vi.spyOn(obsidian.MarkdownRenderer, "render").mockImplementationOnce(
+        async (_app, _markdown, container) => {
+          const paragraph = container.createEl("p");
+          for (let index = 0; index < imageCount; index++) {
+            paragraph.createEl("img", { attr: { src: `app://rendered-${index}` } });
+          }
+        }
+      );
+      const file = mockTFile("thread.md", "thread.md");
+      try {
+        await view.onLoadFile(file);
+        return view.contentEl.querySelectorAll(".floor-notes-image-resize-handle").length;
+      } finally {
+        await view.onUnloadFile(file);
+        render.mockRestore();
+      }
+    };
+
+    const uniqueSource = validBaseDoc.replace("Body content.", "![[photo.png]]");
+    const referenceSource = validBaseDoc.replace(
+      "Body content.",
+      "![[photo.png]]\n![reference][asset]\n\n[asset]: reference.png"
+    );
+    const htmlSource = validBaseDoc.replace(
+      "Body content.",
+      "![[photo.png]]\n<img src=\"html.png\">"
+    );
+    const transclusionSource = validBaseDoc.replace(
+      "Body content.",
+      "![[photo.png]]\n![[embedded-note]]"
+    );
+    const processorOnlySource = validBaseDoc.replace("Body content.", "No source image.");
+    await expect(renderCase(uniqueSource, true, 1)).resolves.toBe(0);
+    await expect(renderCase(uniqueSource, false, 2)).resolves.toBe(0);
+    await expect(renderCase(referenceSource, false, 1)).resolves.toBe(0);
+    await expect(renderCase(htmlSource, false, 1)).resolves.toBe(0);
+    await expect(renderCase(transclusionSource, false, 1)).resolves.toBe(0);
+    await expect(renderCase(processorOnlySource, false, 1)).resolves.toBe(0);
+  });
+});
+
 describe("pagination localization", () => {
   beforeEach(() => {
     setLocale("en");
@@ -687,6 +1461,7 @@ describe("Settings, locales, leaf routing, and commands", () => {
 
   it("uses ascending order for a new installation and rebuilds settings after a locale change", async () => {
     expect(DEFAULT_SETTINGS.defaultSortOrder).toBe("asc");
+    expect(DEFAULT_SETTINGS.showImageDescriptions).toBe(false);
 
     const settings = { ...DEFAULT_SETTINGS, locale: "en" as const };
     const pluginMock = {
@@ -714,6 +1489,33 @@ describe("Settings, locales, leaf routing, and commands", () => {
       expect(container.textContent).toContain(zhCn.settingsTitle);
       expect(container.querySelector<HTMLElement>("label[for='floor-notes-theme-custom'] .floor-notes-theme-option-name")?.innerText).toBe("Plugin");
     });
+  });
+
+  it("renders a disabled image-description toggle and persists changes", async () => {
+    const settings = { ...DEFAULT_SETTINGS };
+    const pluginMock = {
+      settings,
+      updateSettings: vi.fn().mockImplementation(async (nextSettings: Partial<typeof settings>) => {
+        Object.assign(settings, nextSettings);
+      })
+    };
+    const tab = new FloorNotesSettingTab({} as any, pluginMock as any);
+    const container = document.createElement("div");
+    tab.containerEl = container;
+
+    tab.display();
+
+    const setting = Array.from(container.querySelectorAll<HTMLElement>(".setting-item"))
+      .find((item) => item.querySelector(".setting-item-name")?.textContent === en.settingsShowImageDescriptions);
+    const toggle = setting?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(toggle?.checked).toBe(false);
+
+    toggle!.checked = true;
+    toggle!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => expect(pluginMock.updateSettings).toHaveBeenCalledWith({
+      showImageDescriptions: true
+    }));
   });
 
   it("restores locale, theme, and mode focus after each settings redraw", async () => {

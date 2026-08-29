@@ -107,4 +107,25 @@ describe("CSS styles contract", () => {
       /(?:\.theme-|\.floor-notes-view-style-)[^{]*\.floor-notes-image-(?:resize-handle|wrapper)/s
     );
   });
+
+  it("keeps the native theme radio hidden against Obsidian radio styles", () => {
+    const themeStyles = fs.readFileSync("src/styles/themes.css", "utf8");
+    const inputRule = themeStyles.match(
+      /(?:^|\n)([^\n{]*\.floor-notes-theme-input[^\n{]*)\s*\{([^}]*)\}/
+    );
+    expect(inputRule).not.toBeNull();
+    if (!inputRule?.[1] || inputRule[2] === undefined) {
+      throw new Error("Expected the theme input rule to include a selector and declarations");
+    }
+    const inputSelector = inputRule[1].trim();
+    const inputDeclarations = inputRule[2];
+    expect(inputSelector).toBe(
+      ".floor-notes-theme-setting .floor-notes-theme-choice > input.floor-notes-theme-input"
+    );
+    expect(inputDeclarations).toMatch(/appearance:\s*none;/);
+    expect(inputDeclarations).toMatch(/clip:\s*rect\(0 0 0 0\);/);
+    expect(inputDeclarations).toMatch(/clip-path:\s*inset\(50%\);/);
+    expect(inputDeclarations).toMatch(/opacity:\s*0;/);
+    expect(inputDeclarations).toMatch(/position:\s*absolute;/);
+  });
 });

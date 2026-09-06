@@ -1462,6 +1462,7 @@ describe("Settings, locales, leaf routing, and commands", () => {
   it("uses ascending order for a new installation and rebuilds settings after a locale change", async () => {
     expect(DEFAULT_SETTINGS.defaultSortOrder).toBe("asc");
     expect(DEFAULT_SETTINGS.showImageDescriptions).toBe(false);
+    expect(DEFAULT_SETTINGS.restoreLastViewPosition).toBe(false);
 
     const settings = { ...DEFAULT_SETTINGS, locale: "en" as const };
     const pluginMock = {
@@ -1515,6 +1516,35 @@ describe("Settings, locales, leaf routing, and commands", () => {
 
     await vi.waitFor(() => expect(pluginMock.updateSettings).toHaveBeenCalledWith({
       showImageDescriptions: true
+    }));
+  });
+
+  it("renders and persists the view-position restoration toggle", async () => {
+    const settings = { ...DEFAULT_SETTINGS };
+    const pluginMock = {
+      settings,
+      updateSettings: vi.fn().mockImplementation(async (nextSettings: Partial<typeof settings>) => {
+        Object.assign(settings, nextSettings);
+      })
+    };
+    const tab = new FloorNotesSettingTab({} as any, pluginMock as any);
+    const container = document.createElement("div");
+    tab.containerEl = container;
+
+    tab.display();
+
+    const setting = Array.from(container.querySelectorAll<HTMLElement>(".setting-item"))
+      .find((item) => item.querySelector(".setting-item-name")?.textContent
+        === en.settingsRestoreLastViewPosition);
+    const toggle = setting?.querySelector<HTMLInputElement>("input[type='checkbox']");
+    expect(toggle?.checked).toBe(false);
+    expect(setting?.textContent).toContain(en.settingsRestoreLastViewPositionDesc);
+
+    toggle!.checked = true;
+    toggle!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => expect(pluginMock.updateSettings).toHaveBeenCalledWith({
+      restoreLastViewPosition: true
     }));
   });
 

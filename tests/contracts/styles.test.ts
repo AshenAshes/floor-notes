@@ -128,4 +128,36 @@ describe("CSS styles contract", () => {
     expect(inputDeclarations).toMatch(/opacity:\s*0;/);
     expect(inputDeclarations).toMatch(/position:\s*absolute;/);
   });
+
+  it("gives paper and timeline load-more controls layout-specific visual language", () => {
+    const recordStyles = fs.readFileSync("src/styles/records.css", "utf8");
+    const paperRule = recordStyles.match(
+      /\.floor-notes-thread-view\.floor-notes-view-style-paper button\.floor-notes-load-more-replies\s*\{([^}]*)\}/
+    );
+    const paperRuleMark = recordStyles.match(
+      /\.floor-notes-thread-view\.floor-notes-view-style-paper button\.floor-notes-load-more-replies::after\s*\{([^}]*)\}/
+    );
+    const timelineRule = recordStyles.match(
+      /\.floor-notes-thread-view\.floor-notes-view-style-timeline button\.floor-notes-load-more-replies\s*\{([^}]*)\}/
+    );
+    const timelineNode = recordStyles.match(
+      /\.floor-notes-thread-view\.floor-notes-view-style-timeline button\.floor-notes-load-more-replies::before\s*\{([^}]*)\}/
+    );
+
+    expect(paperRule?.[1]).toMatch(/background:\s*transparent/);
+    expect(paperRule?.[1]).toMatch(/font-family:\s*var\(--floor-notes-paper-body-font\)/);
+    expect(paperRule?.[1]).toMatch(/font-style:\s*italic/);
+    expect(paperRule?.[1]).toMatch(/min-block-size:\s*44px/);
+    expect(paperRuleMark?.[1]).toMatch(/inline-size:\s*28px/);
+    expect(paperRuleMark?.[1]).toMatch(/var\(--floor-notes-paper-reply-rule\)/);
+
+    expect(timelineRule?.[1]).toMatch(/background:\s*transparent/);
+    expect(timelineRule?.[1]).toMatch(/font-family:\s*var\(--font-monospace\)/);
+    expect(timelineRule?.[1]).toMatch(/min-block-size:\s*44px/);
+    expect(timelineNode?.[1]).toMatch(/border:\s*1px solid var\(--floor-notes-timeline-node\)/);
+    expect(timelineNode?.[1]).toMatch(/border-radius:\s*50%/);
+    expect(recordStyles).toMatch(
+      /button\.floor-notes-load-more-replies:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--interactive-accent\)/s
+    );
+  });
 });

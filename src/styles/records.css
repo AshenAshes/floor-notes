@@ -348,6 +348,58 @@
   padding: 0 80px 0 0;
 }
 
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies {
+  align-items: center;
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--floor-notes-paper-body-font);
+  font-size: var(--font-ui-small);
+  font-style: italic;
+  gap: var(--size-4-2);
+  justify-content: flex-start;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  min-block-size: 44px;
+  padding: 0;
+  text-align: start;
+  transition: color 160ms ease;
+}
+
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies::after {
+  background-color: var(--floor-notes-paper-reply-rule);
+  block-size: 1px;
+  content: "";
+  inline-size: 28px;
+  transition: background-color 160ms ease, inline-size 160ms ease;
+}
+
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies:hover,
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies:focus-visible {
+  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+}
+
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies:hover::after,
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies:focus-visible::after {
+  background-color: var(--text-normal);
+  inline-size: 44px;
+}
+
+.floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+}
+
 .floor-notes-thread-view.floor-notes-view-style-paper .floor-notes-reply .floor-notes-meta-right {
   right: 0;
   top: 0;
@@ -497,6 +549,73 @@
   padding-inline-start: 32px;
   position: relative;
 }
+
+/* stylelint-disable no-descending-specificity -- Timeline controls intentionally parallel the earlier paper interaction states. */
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies {
+  --timeline-load-node-size: 8px;
+
+  align-items: center;
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  min-block-size: 44px;
+  padding: var(--size-4-2) 0;
+  position: relative;
+  text-align: start;
+  transition: color 160ms ease;
+}
+
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies::before {
+  background-color: var(--background-primary);
+  block-size: var(--timeline-load-node-size);
+  border: 1px solid var(--floor-notes-timeline-node);
+  border-radius: 50%;
+  box-sizing: border-box;
+  content: "";
+  inline-size: var(--timeline-load-node-size);
+  inset-inline-start: calc(
+    (var(--timeline-replies-padding-inline-start) * -1)
+    - (var(--timeline-load-node-size) / 2)
+  );
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  z-index: 2;
+}
+
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies:hover,
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies:focus-visible {
+  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--floor-notes-timeline-date-hover);
+}
+
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies:hover::before,
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies:focus-visible::before {
+  background-color: var(--floor-notes-timeline-node);
+  border-color: var(--floor-notes-timeline-node);
+  transform: translateY(-50%) scale(1.15);
+}
+
+.floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+}
+/* stylelint-enable no-descending-specificity */
 
 .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-replies::before,
 .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-replies::after {

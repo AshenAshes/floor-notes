@@ -13,6 +13,20 @@ if (typeof window !== "undefined") {
   if (!window.crypto) {
     (window as any).crypto = {};
   }
+  if (!window.matchMedia) {
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    });
+  }
+  if (!window.requestAnimationFrame) {
+    window.requestAnimationFrame = (callback: FrameRequestCallback): number =>
+      window.setTimeout(() => callback(performance.now()), 0);
+    window.cancelAnimationFrame = (handle: number): void => {
+      window.clearTimeout(handle);
+    };
+  }
   window.crypto.getRandomValues = function <T extends ArrayBufferView>(array: T): T {
     const uint8 = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
     for (let i = 0; i < uint8.length; i++) {
@@ -35,6 +49,9 @@ if (typeof window !== "undefined") {
   (HTMLElement.prototype as any).instanceOf = function (constructor: typeof HTMLElement): boolean {
     return this instanceof constructor;
   };
+  if (!HTMLElement.prototype.scrollIntoView) {
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+  }
 
   (HTMLElement.prototype as any).createDiv = function (attrs?: any): HTMLElement {
     const div = document.createElement("div");
@@ -139,6 +156,10 @@ export class FileView {
   constructor(leaf: any) {
     this.leaf = leaf;
   }
+  public getState(): Record<string, unknown> {
+    return this.file ? { file: this.file.path } : {};
+  }
+  public async setState(_state: unknown, _result: unknown): Promise<void> {}
   public async onLoadFile(file: any): Promise<void> {
     this.file = file;
   }

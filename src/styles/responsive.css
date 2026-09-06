@@ -96,6 +96,10 @@
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-floor::before,
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-reply::before,
   .floor-notes-thread-view.floor-notes-view-style-timeline .floor-notes-date,
+  .floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies,
+  .floor-notes-thread-view.floor-notes-view-style-paper button.floor-notes-load-more-replies::after,
+  .floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies,
+  .floor-notes-thread-view.floor-notes-view-style-timeline button.floor-notes-load-more-replies::before,
   .floor-notes-thread-view.floor-notes-view-style-glass .floor-notes-floor-group,
   .floor-notes-favorites-view button.floor-notes-favorite-item {
     transition: none;

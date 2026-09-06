@@ -147,7 +147,7 @@ The editor supports Markdown syntax highlighting, bold, italic, Markdown links, 
 - **Image descriptions:** The optional **Show image descriptions** setting is disabled by default. When enabled, floor view shows a meaningful author-supplied Wiki alias or inline Markdown description beneath the image. Automatic attachment filenames and size-only labels remain hidden.
 - **Safe degradation:** Mobile, editor preview, and native Obsidian views do not receive Floor Notes resize controls or description titles. HTML images, reference-style images, images rendered through embedded notes, and ambiguous rendered images remain visible without a resize control.
 
-These capabilities retain the `floor-notes: 1` file format. Reply attribution and desktop resizing do not add settings; only image-description visibility is configurable.
+These capabilities retain the `floor-notes: 1` file format. Reply attribution and desktop resizing do not add settings; image-description visibility and view-position restoration are configurable.
 
 ### Browse favorites
 
@@ -166,6 +166,7 @@ Open **Settings → Community plugins → Floor notes**. The available options a
 | Color mode | Follow Obsidian, use light, or use dark mode for bundled palettes. |
 | Default view style | Fallback layout for new or unspecified notes. |
 | Show image descriptions | Show meaningful author-supplied image descriptions beneath images in floor view; disabled by default. |
+| Restore last view position | Restore each existing pane's reading position and use the note's most recent position for a new pane; disabled by default, and turning it off clears saved positions. |
 | Automatically enable floor view | Route configured notes to the thread view when they are opened. |
 
 ## Thread file format

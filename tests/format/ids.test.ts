@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { generateRandomSuffix, generateRecordId, isValidRecordId } from "../../src/util/ids";
 
 describe("T-057 (primitive part): ID suffix generation and validation", () => {
@@ -10,10 +10,23 @@ describe("T-057 (primitive part): ID suffix generation and validation", () => {
     }
   });
 
-  it("should generate unique suffixes on consecutive calls", () => {
-    const suffix1 = generateRandomSuffix();
-    const suffix2 = generateRandomSuffix();
-    expect(suffix1).not.toBe(suffix2);
+  it("should generate different suffixes from different entropy", () => {
+    let entropy = 0;
+    const randomValues = vi.spyOn(window.crypto, "getRandomValues").mockImplementation(
+      <T extends ArrayBufferView>(array: T): T => {
+        entropy++;
+        new Uint8Array(array.buffer, array.byteOffset, array.byteLength).fill(entropy);
+        return array;
+      }
+    );
+
+    try {
+      const suffix1 = generateRandomSuffix();
+      const suffix2 = generateRandomSuffix();
+      expect(suffix1).not.toBe(suffix2);
+    } finally {
+      randomValues.mockRestore();
+    }
   });
 
   it("should generate valid record IDs", () => {

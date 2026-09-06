@@ -5,6 +5,11 @@ import zhCn from "../src/locales/zh-cn.json";
 import { t } from "../src/util/locale";
 import { FloorThreadView, VIEW_TYPE_THREAD } from "../src/view/FloorThreadView";
 import { FavoritesSidebarView } from "../src/view/FavoritesSidebarView";
+import {
+  FloorViewPosition,
+  ViewPositionPersistence,
+  VIEW_POSITION_VERSION
+} from "../src/services/ViewPositionStore";
 
 const { _testState } = obsidian as any;
 
@@ -16,6 +21,16 @@ const makeFile = (path: string): obsidian.TFile => {
   file.extension = "md";
   return file;
 };
+
+const makeViewPosition = (recordId: string, updatedAt = 1): FloorViewPosition => ({
+  version: VIEW_POSITION_VERSION,
+  page: 1,
+  scrollTop: 120,
+  anchorOffset: 0,
+  updatedAt,
+  anchorRecordId: recordId,
+  floorRecordId: recordId
+});
 
 const searchableThreadDoc = `---
 floor-notes: 1
@@ -68,6 +83,9 @@ const createAppMock = (options?: {
     },
     workspace: {
       getLeavesOfType: vi.fn(() => leaves),
+      iterateAllLeaves: vi.fn((callback: (leaf: unknown) => void) => {
+        leaves.forEach(callback);
+      }),
       getMostRecentLeaf: vi.fn(() => options?.mostRecentLeaf ?? null),
       getActiveViewOfType: vi.fn((viewType: unknown) => viewType === FloorThreadView
         ? options?.activeFloorView ?? null
@@ -99,7 +117,9 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
     const view = Object.create(FloorThreadView.prototype) as FloorThreadView;
     Object.assign(view, {
       file,
-      requestGeneration
+      requestGeneration,
+      handleFileRename: vi.fn(),
+      clearPositionForPath: vi.fn()
     });
     const { app, vaultHandlers } = createAppMock({ leaves: [{ view }] });
     const plugin = new FloorNotesPlugin(app as never, {} as never);
@@ -125,6 +145,33 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
     const remove = vaultHandlers.get("delete")?.at(-1);
     remove?.(file);
     expect(plugin.registry.getIdentityInfo(token)).toBeUndefined();
+  });
+
+  it("clears rather than migrates recent positions when a file is renamed or deleted", async () => {
+    const file = makeFile("thread.md");
+    const position = makeViewPosition("floor-20260729-120000-aaaabbbb");
+    const { app, vaultHandlers } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      restoreLastViewPosition: true,
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{ path: "thread.md", position }]
+      }
+    });
+    const saveData = vi.spyOn(plugin, "saveData").mockResolvedValue(undefined);
+    await plugin.onload();
+
+    file.path = "renamed.md";
+    vaultHandlers.get("rename")?.at(-1)?.(file, "thread.md");
+    await vi.waitFor(() => expect(plugin.viewPositions.get("thread.md")).toBeUndefined());
+    expect(plugin.viewPositions.get("renamed.md")).toBeUndefined();
+
+    plugin.viewPositions.set("renamed.md", { ...position, updatedAt: 2 });
+    vaultHandlers.get("delete")?.at(-1)?.(file);
+    await vi.waitFor(() => expect(plugin.viewPositions.get("renamed.md")).toBeUndefined());
+    expect(saveData).toHaveBeenCalled();
   });
 
   it("routes candidates without mutating the caller's ViewState", async () => {
@@ -372,6 +419,176 @@ describe("FloorNotesPlugin vault lifecycle and routing", () => {
     await plugin.onload();
 
     expect(plugin.settings.showImageDescriptions).toBe(true);
+  });
+
+  it("loads versioned recent positions without letting a setting update overwrite them", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    const position = makeViewPosition("floor-20260729-120000-aaaabbbb");
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      restoreLastViewPosition: true,
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{ path: "thread.md", position }]
+      }
+    });
+    const saveData = vi.spyOn(plugin, "saveData").mockResolvedValue(undefined);
+
+    await plugin.onload();
+    expect(plugin.settings.restoreLastViewPosition).toBe(true);
+    expect(plugin.viewPositions.get("thread.md")).toEqual(position);
+
+    await plugin.updateSettings({ showImageDescriptions: true });
+    expect(saveData).toHaveBeenCalledOnce();
+    expect(saveData).toHaveBeenLastCalledWith(expect.objectContaining({
+      showImageDescriptions: true,
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{ path: "thread.md", position }]
+      }
+    }));
+  });
+
+  it("normalizes an invalid position setting and removes disabled position history", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      restoreLastViewPosition: "yes",
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{
+          path: "thread.md",
+          position: makeViewPosition("floor-20260729-120000-aaaabbbb")
+        }]
+      }
+    });
+    const saveData = vi.spyOn(plugin, "saveData").mockResolvedValue(undefined);
+
+    await plugin.onload();
+
+    expect(plugin.settings.restoreLastViewPosition).toBe(false);
+    expect(plugin.viewPositions.size).toBe(0);
+    expect(saveData).toHaveBeenCalledOnce();
+    expect(saveData.mock.calls[0]?.[0]).not.toHaveProperty("viewPositions");
+  });
+
+  it("clears pane and recent positions when restoration is disabled", async () => {
+    const threadView = Object.create(FloorThreadView.prototype) as FloorThreadView;
+    const handlePositionSettingChanged = vi.fn();
+    Object.assign(threadView, {
+      applyTheme: vi.fn(),
+      requestGeneration: vi.fn().mockResolvedValue(undefined),
+      handlePositionSettingChanged
+    });
+    const { app } = createAppMock({ leaves: [{ view: threadView }] });
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    const position = makeViewPosition("floor-20260729-120000-aaaabbbb");
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      restoreLastViewPosition: true,
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{ path: "thread.md", position }]
+      }
+    });
+    const saveData = vi.spyOn(plugin, "saveData").mockResolvedValue(undefined);
+    await plugin.onload();
+
+    await plugin.updateSettings({ restoreLastViewPosition: false });
+
+    expect(plugin.viewPositions.size).toBe(0);
+    expect(handlePositionSettingChanged).toHaveBeenCalledWith(false);
+    expect(app.workspace.requestSaveLayout).toHaveBeenCalledOnce();
+    expect(saveData).toHaveBeenLastCalledWith(expect.not.objectContaining({
+      viewPositions: expect.anything()
+    }));
+  });
+
+  it("debounces recent-position persistence and saves the newest snapshot", async () => {
+    vi.useFakeTimers();
+    try {
+      const { app } = createAppMock();
+      const plugin = new FloorNotesPlugin(app as never, {} as never);
+      plugins.push(plugin);
+      vi.spyOn(plugin, "loadData").mockResolvedValue({
+        restoreLastViewPosition: true
+      });
+      const saveData = vi.spyOn(plugin, "saveData").mockResolvedValue(undefined);
+      await plugin.onload();
+      const persistence = (plugin as unknown as {
+        positionPersistence: ViewPositionPersistence;
+      }).positionPersistence;
+
+      persistence.setRecent(
+        "thread.md",
+        makeViewPosition("floor-20260729-120000-aaaabbbb", 1),
+        window
+      );
+      const newest = makeViewPosition("floor-20260729-120100-ccccdddd", 2);
+      persistence.setRecent("thread.md", newest, window);
+
+      await vi.advanceTimersByTimeAsync(499);
+      expect(saveData).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(saveData).toHaveBeenCalledOnce();
+      expect(saveData).toHaveBeenCalledWith(expect.objectContaining({
+        viewPositions: {
+          version: VIEW_POSITION_VERSION,
+          entries: [{ path: "thread.md", position: newest }]
+        }
+      }));
+      expect(app.workspace.requestSaveLayout).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let stale validation delete a position another pane just updated", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    const original = makeViewPosition("floor-20260729-120000-aaaabbbb", 1);
+    vi.spyOn(plugin, "loadData").mockResolvedValue({
+      restoreLastViewPosition: true,
+      viewPositions: {
+        version: VIEW_POSITION_VERSION,
+        entries: [{ path: "thread.md", position: original }]
+      }
+    });
+    await plugin.onload();
+    const loadedOriginal = plugin.viewPositions.get("thread.md")!;
+    const newer = makeViewPosition("floor-20260729-120100-ccccdddd", 2);
+    plugin.viewPositions.set("thread.md", newer);
+    const persistence = (plugin as unknown as {
+      positionPersistence: ViewPositionPersistence;
+    }).positionPersistence;
+
+    persistence.removeRecent("thread.md", loadedOriginal);
+
+    expect(plugin.viewPositions.get("thread.md")).toEqual(newer);
+  });
+
+  it("shares pane history across floor-view instances created for the same leaf", async () => {
+    const { app } = createAppMock();
+    const plugin = new FloorNotesPlugin(app as never, {} as never);
+    plugins.push(plugin);
+    await plugin.onload();
+    const registration = (plugin as any).registeredViews.find(
+      (candidate: { type: string }) => candidate.type === VIEW_TYPE_THREAD
+    ) as { creator: (leaf: obsidian.WorkspaceLeaf) => FloorThreadView };
+    const leaf = new obsidian.WorkspaceLeaf();
+    const otherLeaf = new obsidian.WorkspaceLeaf();
+    const first = registration.creator(leaf);
+    const replacement = registration.creator(leaf);
+    const otherPane = registration.creator(otherLeaf);
+    const getPanePositions = (view: FloorThreadView): unknown =>
+      (view as unknown as { panePositions: unknown }).panePositions;
+
+    expect(getPanePositions(replacement)).toBe(getPanePositions(first));
+    expect(getPanePositions(otherPane)).not.toBe(getPanePositions(first));
   });
 
   it("keeps the Obsidian language for auto locale after reload and unrelated setting updates", async () => {

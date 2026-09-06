@@ -22,6 +22,11 @@ import {
   hasSourceNavigationState,
   resolveRecordIdFromNavigationState
 } from "./view/sourceNavigation";
+import {
+  FloorViewPosition,
+  ViewPositionPersistence,
+  ViewPositionStore
+} from "./services/ViewPositionStore";
 
 
 export default class FloorNotesPlugin extends Plugin {
@@ -29,6 +34,13 @@ export default class FloorNotesPlugin extends Plugin {
   public registry!: FileIdentityRegistry;
   public mutationService!: ThreadMutationService;
   public favoritesIndex!: FavoritesIndex;
+  public viewPositions!: ViewPositionStore;
+  private positionPersistence!: ViewPositionPersistence;
+  private persistTail: Promise<void> = Promise.resolve();
+  private positionSaveTimer: number | null = null;
+  private positionSaveWindow: Window | null = null;
+  private viewPositionsDirty = false;
+  private readonly panePositionsByLeaf = new WeakMap<WorkspaceLeaf, Map<string, FloorViewPosition>>();
 
   override async onload(): Promise<void> {
     // 1. Synchronously initialize all fields to avoid race conditions during async loadData yielding
@@ -41,6 +53,20 @@ export default class FloorNotesPlugin extends Plugin {
     );
     this.favoritesIndex = new FavoritesIndex(this.app, this);
     this.favoritesIndex.init();
+    this.viewPositions = new ViewPositionStore();
+    this.positionPersistence = {
+      isEnabled: () => this.settings.restoreLastViewPosition,
+      getRecent: (path) => this.viewPositions.get(path),
+      setRecent: (path, position, ownerWindow) => {
+        this.recordRecentPosition(path, position, ownerWindow);
+      },
+      removeRecent: (path, expectedPosition) => {
+        this.removeRecentPosition(path, expectedPosition);
+      },
+      flush: async () => {
+        await this.flushViewPositions();
+      }
+    };
 
     // 2. Load settings from the untrusted persistence boundary and retain only valid fields.
     const loadedData = (await this.loadData()) as Record<string, unknown> | null;
@@ -65,34 +91,50 @@ export default class FloorNotesPlugin extends Plugin {
       autoOpenThreadView: typeof source.autoOpenThreadView === "boolean"
         ? source.autoOpenThreadView
         : DEFAULT_SETTINGS.autoOpenThreadView,
+      restoreLastViewPosition: typeof source.restoreLastViewPosition === "boolean"
+        ? source.restoreLastViewPosition
+        : DEFAULT_SETTINGS.restoreLastViewPosition,
       showImageDescriptions: typeof source.showImageDescriptions === "boolean"
         ? source.showImageDescriptions
         : DEFAULT_SETTINGS.showImageDescriptions,
       defaultViewStyle: resolvedViewStyle
     };
-    const persistedKeys = [
+    const settingKeys = [
       "preferredNewline", "defaultSortOrder", "locale", "theme", "mode", "autoOpenThreadView",
-      "showImageDescriptions", "defaultViewStyle"
+      "restoreLastViewPosition", "showImageDescriptions", "defaultViewStyle"
     ];
+    const persistedKeys = [...settingKeys, "viewPositions"];
+    const shouldNormalizeViewPositions = this.viewPositions.load(source.viewPositions);
+    const discardedDisabledViewPositions = !normalizedSettings.restoreLastViewPosition
+      && (this.viewPositions.clear() || source.viewPositions !== undefined);
     const shouldPersistNormalizedSettings =
       source.replyStyle !== undefined ||
       Object.keys(source).some((key) => !persistedKeys.includes(key)) ||
-      persistedKeys.some((key) =>
+      settingKeys.some((key) =>
         Object.prototype.hasOwnProperty.call(source, key) &&
         source[key] !== normalizedSettings[key as keyof FloorNotesSettings]
-      );
+      ) ||
+      shouldNormalizeViewPositions ||
+      discardedDisabledViewPositions;
 
     Object.assign(this.settings, normalizedSettings);
     setLocale(this.settings.locale);
     if (shouldPersistNormalizedSettings) {
-      await this.saveData(this.settings);
+      await this.persistData();
     }
 
 
     // 3. Register views
     this.registerView(
       VIEW_TYPE_THREAD,
-      (leaf: WorkspaceLeaf) => new FloorThreadView(leaf, this.registry, this.mutationService, this.settings)
+      (leaf: WorkspaceLeaf) => new FloorThreadView(
+        leaf,
+        this.registry,
+        this.mutationService,
+        this.settings,
+        this.positionPersistence,
+        this.getPanePositions(leaf)
+      )
     );
 
     this.registerView(
@@ -117,6 +159,15 @@ export default class FloorNotesPlugin extends Plugin {
       this.app.vault.on("rename", (file, oldPath) => {
         if (file instanceof TFile) {
           this.registry.handleRename(file, oldPath);
+          this.removeRecentPosition(oldPath);
+          this.removeRecentPosition(file.path);
+          this.clearPanePositionsForPath(oldPath);
+          this.clearPanePositionsForPath(file.path);
+          this.app.workspace.getLeavesOfType(VIEW_TYPE_THREAD).forEach((leaf) => {
+            if (leaf.view instanceof FloorThreadView) {
+              leaf.view.handleFileRename(file, oldPath);
+            }
+          });
           this.app.workspace.requestSaveLayout();
           this.requestGenerationForFile(file);
         }
@@ -126,6 +177,13 @@ export default class FloorNotesPlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
         if (file instanceof TFile) {
+          this.removeRecentPosition(file.path);
+          this.clearPanePositionsForPath(file.path);
+          this.app.workspace.getLeavesOfType(VIEW_TYPE_THREAD).forEach((leaf) => {
+            if (leaf.view instanceof FloorThreadView) {
+              leaf.view.clearPositionForPath(file.path);
+            }
+          });
           this.registry.handleDelete(file);
         }
       })
@@ -313,14 +371,35 @@ export default class FloorNotesPlugin extends Plugin {
   }
 
   override onunload(): void {
+    this.cancelPositionSaveTimer();
+    void this.flushViewPositions();
     // Obsidian automatically cleans up registered views, commands, and events.
   }
 
   public async updateSettings(settings: Partial<FloorNotesSettings>): Promise<void> {
     const localeChanged = settings.locale !== undefined && settings.locale !== this.settings.locale;
+    const positionSettingChanged = settings.restoreLastViewPosition !== undefined
+      && settings.restoreLastViewPosition !== this.settings.restoreLastViewPosition;
     Object.assign(this.settings, settings);
     setLocale(this.settings.locale);
-    await this.saveData(this.settings);
+
+    if (positionSettingChanged && !this.settings.restoreLastViewPosition) {
+      this.cancelPositionSaveTimer();
+      this.viewPositionsDirty = false;
+      this.viewPositions.clear();
+      this.clearAllPanePositions();
+    }
+
+    await this.persistData();
+
+    if (positionSettingChanged) {
+      this.app.workspace.getLeavesOfType(VIEW_TYPE_THREAD).forEach((leaf) => {
+        if (leaf.view instanceof FloorThreadView) {
+          leaf.view.handlePositionSettingChanged(this.settings.restoreLastViewPosition);
+        }
+      });
+      this.app.workspace.requestSaveLayout();
+    }
 
     // Apply settings changes dynamically to open views
     this.app.workspace.getLeavesOfType(VIEW_TYPE_THREAD).forEach((leaf) => {
@@ -393,6 +472,109 @@ export default class FloorNotesPlugin extends Plugin {
           void leaf.view.requestGeneration();
         }
       }
+    }
+  }
+
+  private buildPersistedData(): Record<string, unknown> {
+    return {
+      ...this.settings,
+      ...(this.settings.restoreLastViewPosition && this.viewPositions.size > 0
+        ? { viewPositions: this.viewPositions.serialize() }
+        : {})
+    };
+  }
+
+  private getPanePositions(leaf: WorkspaceLeaf): Map<string, FloorViewPosition> {
+    let positions = this.panePositionsByLeaf.get(leaf);
+    if (!positions) {
+      positions = new Map<string, FloorViewPosition>();
+      this.panePositionsByLeaf.set(leaf, positions);
+    }
+    return positions;
+  }
+
+  private clearPanePositionsForPath(path: string): void {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      this.panePositionsByLeaf.get(leaf)?.delete(path);
+    });
+  }
+
+  private clearAllPanePositions(): void {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      this.panePositionsByLeaf.get(leaf)?.clear();
+    });
+  }
+
+  private persistData(): Promise<void> {
+    const snapshot = this.buildPersistedData();
+    const operation = this.persistTail.then(
+      async () => this.saveData(snapshot),
+      async () => this.saveData(snapshot)
+    );
+    this.persistTail = operation.catch(() => undefined);
+    return operation;
+  }
+
+  private recordRecentPosition(
+    path: string,
+    position: FloorViewPosition,
+    ownerWindow: Window
+  ): void {
+    if (!this.settings.restoreLastViewPosition) {
+      return;
+    }
+    if (!this.viewPositions.set(path, position)) {
+      return;
+    }
+    this.viewPositionsDirty = true;
+    this.schedulePositionSave(ownerWindow);
+  }
+
+  private removeRecentPosition(
+    path: string,
+    expectedPosition?: FloorViewPosition
+  ): void {
+    if (expectedPosition && this.viewPositions.get(path) !== expectedPosition) {
+      return;
+    }
+    if (!this.viewPositions.delete(path)) {
+      return;
+    }
+    this.viewPositionsDirty = true;
+    void this.flushViewPositions();
+  }
+
+  private schedulePositionSave(ownerWindow: Window): void {
+    this.cancelPositionSaveTimer();
+    this.positionSaveWindow = ownerWindow;
+    this.positionSaveTimer = ownerWindow.setTimeout(() => {
+      this.positionSaveTimer = null;
+      this.positionSaveWindow = null;
+      void this.flushViewPositions();
+    }, 500);
+  }
+
+  private cancelPositionSaveTimer(): void {
+    if (this.positionSaveTimer !== null && this.positionSaveWindow) {
+      this.positionSaveWindow.clearTimeout(this.positionSaveTimer);
+    }
+    this.positionSaveTimer = null;
+    this.positionSaveWindow = null;
+  }
+
+  private async flushViewPositions(): Promise<void> {
+    this.cancelPositionSaveTimer();
+    if (!this.viewPositionsDirty) {
+      await this.persistTail;
+      return;
+    }
+
+    this.viewPositionsDirty = false;
+    this.app.workspace.requestSaveLayout();
+    try {
+      await this.persistData();
+    } catch {
+      this.viewPositionsDirty = true;
     }
   }
 

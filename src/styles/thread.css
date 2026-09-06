@@ -87,6 +87,15 @@
   min-height: var(--floor-notes-min-height, auto);
 }
 
+.floor-notes-page-loading {
+  align-items: center;
+  color: var(--text-muted);
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-block-size: 120px;
+}
+
 .floor-notes-thread-view button.floor-notes-btn {
   background-color: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);

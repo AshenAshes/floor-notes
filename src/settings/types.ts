@@ -31,6 +31,7 @@ export interface FloorNotesSettings {
   readonly theme: FloorNotesTheme;
   readonly mode: FloorNotesMode;
   readonly autoOpenThreadView: boolean;
+  readonly restoreLastViewPosition: boolean;
   readonly showImageDescriptions: boolean;
   readonly defaultViewStyle: ThreadViewStyle;
 }
@@ -42,6 +43,7 @@ export const DEFAULT_SETTINGS: FloorNotesSettings = {
   theme: "obsidian",
   mode: "auto",
   autoOpenThreadView: true,
+  restoreLastViewPosition: false,
   showImageDescriptions: false,
   defaultViewStyle: "bubble"
 };

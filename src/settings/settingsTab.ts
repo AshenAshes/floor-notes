@@ -147,6 +147,14 @@ export class FloorNotesSettingTab extends PluginSettingTab {
             }
           },
           {
+            name: t("settingsRestoreLastViewPosition"),
+            desc: t("settingsRestoreLastViewPositionDesc"),
+            control: {
+              type: "toggle",
+              key: "restoreLastViewPosition"
+            }
+          },
+          {
             name: t("settingsAutoOpen"),
             desc: t("settingsAutoOpenDesc"),
             control: {
@@ -175,6 +183,8 @@ export class FloorNotesSettingTab extends PluginSettingTab {
         return this.plugin.settings.autoOpenThreadView;
       case "showImageDescriptions":
         return this.plugin.settings.showImageDescriptions;
+      case "restoreLastViewPosition":
+        return this.plugin.settings.restoreLastViewPosition;
       case "defaultViewStyle":
         return this.plugin.settings.defaultViewStyle;
       default:
@@ -217,6 +227,11 @@ export class FloorNotesSettingTab extends PluginSettingTab {
       case "showImageDescriptions":
         if (typeof value === "boolean") {
           void this.plugin.updateSettings({ showImageDescriptions: value });
+        }
+        break;
+      case "restoreLastViewPosition":
+        if (typeof value === "boolean") {
+          void this.plugin.updateSettings({ restoreLastViewPosition: value });
         }
         break;
       default:
@@ -322,6 +337,17 @@ export class FloorNotesSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.showImageDescriptions)
           .onChange(async (value) => {
             await this.plugin.updateSettings({ showImageDescriptions: value });
+          });
+      });
+
+    new Setting(containerEl)
+      .setName(t("settingsRestoreLastViewPosition"))
+      .setDesc(t("settingsRestoreLastViewPositionDesc"))
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.restoreLastViewPosition)
+          .onChange(async (value) => {
+            await this.plugin.updateSettings({ restoreLastViewPosition: value });
           });
       });
 

@@ -308,3 +308,9 @@ button.floor-notes-image-lightbox-close:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
+
+.floor-notes-outline-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

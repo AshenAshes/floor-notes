@@ -91,6 +91,7 @@ const createAppMock = (options?: {
         ? options?.activeFloorView ?? null
         : null),
       requestSaveLayout: vi.fn(),
+      onLayoutReady: vi.fn(),
       on: vi.fn((name: string, callback: (...args: any[]) => void) => registerHandler(workspaceHandlers, name, callback)),
       getActiveFile: vi.fn(() => null)
     },

@@ -17,6 +17,7 @@ import { FileIdentityRegistry } from "./services/FileIdentityRegistry";
 import { ThreadMutationService } from "./services/ThreadMutationService";
 import { FloorThreadView, VIEW_TYPE_THREAD } from "./view/FloorThreadView";
 import { FavoritesIndex } from "./services/FavoritesIndex";
+import { installNativeOutlineEnhancement } from "./view/NativeOutlineEnhancement";
 import { FavoritesSidebarView, VIEW_TYPE_FAVORITES } from "./view/FavoritesSidebarView";
 import {
   hasSourceNavigationState,
@@ -143,6 +144,7 @@ export default class FloorNotesPlugin extends Plugin {
     );
 
     // 4. Hook mutation updates to reload views
+    installNativeOutlineEnhancement(this.app, this);
     this.mutationService.addAppliedListener((token) => {
       this.app.workspace.getLeavesOfType(VIEW_TYPE_THREAD).forEach((leaf) => {
         if (leaf.view instanceof FloorThreadView && leaf.view.file) {

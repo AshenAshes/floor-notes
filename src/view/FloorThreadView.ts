@@ -332,6 +332,11 @@ export class FloorThreadView extends FileView {
     }
   }
 
+  public async navigateToStart(): Promise<void> {
+    this.currentPage = 1;
+    await this.requestGeneration(undefined, true, true);
+  }
+
   public async requestGeneration(
     focusFloorId?: string,
     scrollToTop = false,

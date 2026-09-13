@@ -149,6 +149,10 @@ The editor supports Markdown syntax highlighting, bold, italic, Markdown links, 
 
 These capabilities retain the `floor-notes: 1` file format. Reply attribution and desktop resizing do not add settings; image-description visibility and view-position restoration are configurable.
 
+### Native outline in floor view
+
+While a floor view is active, the native outline displays content summaries for Floor and Reply entries, retaining the reply hierarchy and native collapse state. Labels omit floor numbers and truncate to one line. Native search matches summaries, and clicking an entry navigates across pages when needed. Regular views retain native headings. This adapter targets the internal outline structure in Obsidian 1.13.7 and leaves incompatible structures unchanged.
+
 ### Browse favorites
 
 Use the **star** ribbon icon or run **Open favorite floors** from the Command palette. The favorites sidebar shows the source note and a short content snippet. Selecting an item opens the source thread and focuses the associated record.

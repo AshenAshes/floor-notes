@@ -106,6 +106,20 @@ afterEach(async () => {
 });
 
 describe("FloorThreadView position restoration", () => {
+  it("returns to the first page top without switching view when navigating to the document title", async () => {
+    const { view } = createView(makePosition(lastRecordId, 2, 240));
+    const setViewState = vi.spyOn(view.leaf, "setViewState");
+    openViews.push(view);
+    const file = makeFile();
+    await view.onLoadFile(file);
+    expect(getRenderedRecordIds(view)).toEqual([lastRecordId]);
+    await view.navigateToStart();
+    expect(getRenderedRecordIds(view)).toContain(firstRecordId);
+    expect(getRenderedRecordIds(view)).not.toContain(lastRecordId);
+    expect(view.contentEl.querySelector<HTMLElement>(".floor-notes-records-container")?.scrollTop).toBe(0);
+    expect(view.file).toBe(file);
+    expect(setViewState).not.toHaveBeenCalled();
+  });
   it("prefers serialized pane state while a new pane uses the note's recent position", async () => {
     const recent = makePosition(lastRecordId, 2, 240);
     const pane = makePosition(firstRecordId, 1, 40);

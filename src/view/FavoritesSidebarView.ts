@@ -83,16 +83,6 @@ export class FavoritesSidebarView extends ItemView {
         cls: `floor-notes-favorite-item is-${entry.type}`
       });
 
-      // Accessible label
-      const staleLabel = entry.isStale ? t("staleParen") : "";
-      btn.setAttribute(
-        "aria-label",
-        t("navigateFavAria")
-          .replace("{title}", entry.title)
-          .replace("{recordId}", entry.recordId)
-          .replace("{stale}", staleLabel)
-      );
-
       // Top Row (File tag and stale warning)
       const topRow = btn.createDiv({ cls: "floor-notes-fav-item-top" });
       topRow.createSpan({ cls: "floor-notes-fav-item-file-tag", text: entry.title });

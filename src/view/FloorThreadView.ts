@@ -62,6 +62,20 @@ interface PendingLoadPositionRestore {
 }
 
 export class FloorThreadView extends FileView {
+  private readonly outlinePositionListeners = new Set<(id?: string) => void>();
+
+  public onOutlinePositionChange(listener: (id?: string) => void): () => void {
+    this.outlinePositionListeners.add(listener);
+    return () => { this.outlinePositionListeners.delete(listener); };
+  }
+
+  public getOutlineRecordId(): string | undefined {
+    return this.captureCurrentPosition()?.anchorRecordId;
+  }
+
+  private notifyOutlinePosition(id?: string): void {
+    for (const listener of this.outlinePositionListeners) listener(id);
+  }
   private generation = 0;
   private currentRenderScope: Component | null = null;
   private pendingRenderScope: Component | null = null;
@@ -116,6 +130,20 @@ export class FloorThreadView extends FileView {
 
   override async onOpen(): Promise<void> {
     this.applyTheme();
+    this.registerDomEvent(this.contentEl, "scroll", (event) => {
+      if (event.target === this.contentEl.querySelector(".floor-notes-records-container")) {
+        this.notifyOutlinePosition();
+      }
+    }, { capture: true, passive: true });
+    const focusRecord = (event: Event): void => {
+      const target = event.target;
+      if (target instanceof this.contentEl.ownerDocument.defaultView!.HTMLElement) {
+        const record = target.closest<HTMLElement>(".floor-notes-record[data-record-id]");
+        if (record) this.notifyOutlinePosition(record.dataset.recordId);
+      }
+    };
+    this.registerDomEvent(this.contentEl, "click", focusRecord);
+    this.registerDomEvent(this.contentEl, "focusin", focusRecord);
     this.registerEvent(
       this.app.workspace.on("css-change", () => {
         this.applyTheme();
@@ -451,6 +479,7 @@ export class FloorThreadView extends FileView {
         this.unloadScope(previousScope);
       }
       this.renderedFilePath = sourcePath;
+      this.notifyOutlinePosition(focusFloorId);
       if (this.pendingLoadPositionRestore?.path === sourcePath) {
         this.pendingLoadPositionRestore = null;
       }

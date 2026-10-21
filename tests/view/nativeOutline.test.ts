@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HeadingCache } from "obsidian";
-import { enhanceOutline } from "../../src/view/NativeOutlineEnhancement";
+import { enhanceOutline, followOutlineRecord, resolveOutlineOwner } from "../../src/view/NativeOutlineEnhancement";
 import { summarizeOutlineBody, type OutlineRecordSummary } from "../../src/view/outlineSummary";
 import { setLocale } from "../../src/util/locale";
 
@@ -17,6 +17,39 @@ function item(line: number, heading: string, level: number) {
 }
 
 describe("native outline enhancement", () => {
+  it("retains an open floor owner when focus leaves it and rejects closed owners", () => {
+    const floor = { id: "floor" };
+    const otherFloor = { id: "other-floor" };
+    const sidebar = { id: "sidebar" };
+    const matches = (entry: typeof floor): boolean => entry === floor;
+    expect(resolveOutlineOwner(sidebar, floor, [floor, otherFloor], matches)).toBe(floor);
+    expect(resolveOutlineOwner(null, floor, [floor], matches)).toBe(floor);
+    expect(resolveOutlineOwner(otherFloor, floor, [floor, otherFloor], matches)).toBe(otherFloor);
+    expect(resolveOutlineOwner(sidebar, null, [floor], matches)).toBe(floor);
+    expect(resolveOutlineOwner(sidebar, floor, [otherFloor], matches)).toBeNull();
+    expect(resolveOutlineOwner(sidebar, floor, [], matches)).toBeNull();
+  });
+  it("follows a floor or reply only when native follow-cursor is enabled", () => {
+    const floor = item(3, "Floor", 2);
+    const reply = item(8, "Reply", 3);
+    const outline = { file: null, prevQuery: "", cachedHeadingDom: [floor, reply],
+      followCursor: false, setHighlightedItem: vi.fn() };
+    const summaries = new Map([
+      [3, { id: "floor", text: "Summary" }], [8, { id: "reply", text: "Reply" }]
+    ]);
+    followOutlineRecord(outline, summaries, "floor");
+    expect(outline.setHighlightedItem).not.toHaveBeenCalled();
+    outline.followCursor = true;
+    followOutlineRecord(outline, summaries, "floor");
+    expect(outline.setHighlightedItem).toHaveBeenLastCalledWith(floor);
+    followOutlineRecord(outline, summaries, "reply");
+    expect(outline.setHighlightedItem).toHaveBeenLastCalledWith(reply);
+    followOutlineRecord(outline, null, "reply");
+    followOutlineRecord(outline, summaries, "missing");
+    followOutlineRecord(outline, summaries, undefined);
+    expect(outline.setHighlightedItem).toHaveBeenCalledTimes(2);
+    expect(floor.collapsed).toBe(true);
+  });
   it("supports 1.14 rendering and separate path filtering, restoring native state on dispose", () => {
     const floor = item(3, "Floor", 2);
     const reply = item(8, "Reply", 3);

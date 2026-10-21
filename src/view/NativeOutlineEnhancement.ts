@@ -1,6 +1,6 @@
 import { type App, type HeadingCache, type Plugin, TFile, type WorkspaceLeaf } from "obsidian";
 import { parseThreadDocument } from "../format/parser";
-import { FloorThreadView } from "./FloorThreadView";
+import { FloorThreadView, VIEW_TYPE_THREAD } from "./FloorThreadView";
 import { buildOutlineSummaries, type OutlineRecordSummary } from "./outlineSummary";
 
 interface OutlineItem {
@@ -18,6 +18,32 @@ interface NativeOutline {
   filterSearchResults?: () => void;
   renderSearchMatches?: () => void;
   tree?: { applySearchFilter: () => void };
+  followCursor?: boolean;
+  setHighlightedItem?: (item: OutlineItem) => void;
+  setFollowCursor?: (enabled: boolean) => void;
+}
+
+export function followOutlineRecord(
+  outline: NativeOutline,
+  summaries: ReadonlyMap<number, OutlineRecordSummary> | null,
+  id: string | undefined
+): void {
+  if (!outline.followCursor || !summaries || !id) return;
+  const item = outline.cachedHeadingDom.find(entry =>
+    isOutlineItem(entry) && summaries.get(entry.heading.position.start.line)?.id === id);
+  if (item) outline.setHighlightedItem?.(item);
+}
+
+/** Focus leaving a note does not mean that its retained outline lost its owner. */
+export function resolveOutlineOwner<T>(
+  active: T | null,
+  previous: T | null,
+  openViews: readonly T[],
+  matchesOutline: (view: T) => boolean
+): T | null {
+  if (active && openViews.includes(active)) return active;
+  if (previous && openViews.includes(previous)) return previous;
+  return openViews.find(matchesOutline) ?? null;
 }
 
 function renderMethod(outline: Partial<NativeOutline>): "filterSearchResults" | "renderSearchMatches" | null {
@@ -134,15 +160,50 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
   let currentFile: TFile | null = null;
   let summaries: ReadonlyMap<number, OutlineRecordSummary> | null = null;
   const adapters = new Map<NativeOutline, () => void>();
+  let unsubscribePosition: (() => void) | undefined;
+  let subscribedView: FloorThreadView | null = null;
+  let pendingFrame: number | null = null;
+  let frameWindow: Window | null = null;
+  let focusedRecord: string | undefined;
+  const cancelFollow = (): void => {
+    if (pendingFrame !== null) frameWindow?.cancelAnimationFrame(pendingFrame);
+    pendingFrame = null;
+  };
+  const follow = (): void => {
+    const view = owner?.view;
+    if (!(view instanceof FloorThreadView) || view.file !== currentFile) return;
+    const targets = [...adapters.keys()].filter(outline => outline.file === currentFile && outline.followCursor);
+    if (!targets.length) return;
+    const id = focusedRecord ?? view.getOutlineRecordId();
+    for (const outline of targets) followOutlineRecord(outline, summaries, id);
+  };
+  const scheduleFollow = (id?: string): void => {
+    focusedRecord = id;
+    if (pendingFrame !== null) return;
+    frameWindow = owner?.view.containerEl.ownerDocument.defaultView ?? null;
+    if (!frameWindow) return;
+    pendingFrame = frameWindow.requestAnimationFrame(() => {
+      pendingFrame = null;
+      if (!stopped) follow();
+    });
+  };
 
   const sync = (): void => {
+    const view = owner?.view instanceof FloorThreadView ? owner.view : null;
+    if (view !== subscribedView) {
+      unsubscribePosition?.();
+      cancelFollow();
+      focusedRecord = undefined;
+      subscribedView = view;
+      unsubscribePosition = view?.onOutlinePositionChange(scheduleFollow);
+    }
     const live = new Set<NativeOutline>();
     for (const leaf of app.workspace.getLeavesOfType("outline")) {
       const outline = asOutline(leaf.view);
       if (!outline) continue;
       live.add(outline);
       if (!adapters.has(outline)) {
-        adapters.set(outline, enhanceOutline(outline, () =>
+        const disposeEnhancement = enhanceOutline(outline, () =>
           owner?.view instanceof FloorThreadView && owner.view.file === currentFile
             && outline.file === currentFile
             ? summaries : null,
@@ -154,7 +215,21 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
             if (id === null) void view.navigateToStart();
             else void view.requestGeneration(id);
           }
-        }));
+        });
+        const originalToggle = outline.setFollowCursor;
+        const ownToggle = Object.prototype.hasOwnProperty.call(outline, "setFollowCursor");
+        const toggle = (enabled: boolean): void => {
+          originalToggle?.call(outline, enabled);
+          scheduleFollow(focusedRecord);
+        };
+        if (originalToggle) outline.setFollowCursor = toggle;
+        adapters.set(outline, () => {
+          disposeEnhancement();
+          if (outline.setFollowCursor === toggle) {
+            if (ownToggle && originalToggle) outline.setFollowCursor = originalToggle;
+            else delete outline.setFollowCursor;
+          }
+        });
       } else {
         const method = renderMethod(outline);
         if (method) outline[method]?.();
@@ -166,9 +241,16 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
         adapters.delete(outline);
       }
     }
+    scheduleFollow(focusedRecord);
   };
   const refresh = async (): Promise<void> => {
     const request = ++revision;
+    const openViews = app.workspace.getLeavesOfType(VIEW_TYPE_THREAD)
+      .filter(leaf => leaf.view instanceof FloorThreadView);
+    const outlineFiles = app.workspace.getLeavesOfType("outline")
+      .map(leaf => asOutline(leaf.view)?.file);
+    owner = resolveOutlineOwner(app.workspace.getActiveViewOfType(FloorThreadView)?.leaf ?? null, owner, openViews,
+      leaf => leaf.view instanceof FloorThreadView && outlineFiles.includes(leaf.view.file));
     const view = owner?.view;
     const file = view instanceof FloorThreadView ? view.file : null;
     if (!file) {
@@ -191,8 +273,7 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
     sync();
   };
   const selectOwner = (leaf: WorkspaceLeaf | null): void => {
-    if (leaf?.view.getViewType() === "outline") return;
-    owner = leaf;
+    if (leaf?.view instanceof FloorThreadView) owner = leaf;
     void refresh();
   };
   plugin.registerEvent(app.workspace.on("active-leaf-change", selectOwner));
@@ -210,6 +291,8 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
   });
   plugin.register(() => {
     stopped = true;
+    unsubscribePosition?.();
+    cancelFollow();
     revision++;
     for (const dispose of adapters.values()) dispose();
     adapters.clear();

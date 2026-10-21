@@ -10,19 +10,28 @@ interface OutlineItem {
   onSelfClick: (event: MouseEvent) => void;
 }
 
-/** Private core-plugin boundary, verified against Obsidian 1.13.7. */
+/** Private core-plugin boundary, verified against Obsidian 1.13.7 and 1.14.4. */
 interface NativeOutline {
   file: TFile | null;
   cachedHeadingDom: OutlineItem[];
   prevQuery: string;
-  filterSearchResults: () => void;
+  filterSearchResults?: () => void;
+  renderSearchMatches?: () => void;
+  tree?: { applySearchFilter: () => void };
+}
+
+function renderMethod(outline: Partial<NativeOutline>): "filterSearchResults" | "renderSearchMatches" | null {
+  if (typeof outline.filterSearchResults === "function") return "filterSearchResults";
+  if (typeof outline.renderSearchMatches === "function"
+    && typeof outline.tree?.applySearchFilter === "function") return "renderSearchMatches";
+  return null;
 }
 
 function asOutline(value: unknown): NativeOutline | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<NativeOutline>;
   return Array.isArray(candidate.cachedHeadingDom)
-    && typeof candidate.filterSearchResults === "function"
+    && renderMethod(candidate) !== null
     && typeof candidate.prevQuery === "string"
     ? candidate as NativeOutline : null;
 }
@@ -42,7 +51,10 @@ export function enhanceOutline(
   summaries: () => ReadonlyMap<number, OutlineRecordSummary> | null,
   navigate: (id: string | null) => void
 ): () => void {
-  const originalFilter = outline.filterSearchResults;
+  const method = renderMethod(outline);
+  const originalFilter = method && outline[method];
+  if (!method || !originalFilter) return () => {};
+  const hadOwnMethod = Object.prototype.hasOwnProperty.call(outline, method);
   const originals = new Map<OutlineItem, { text: string; click: OutlineItem["onSelfClick"]; wrapped: OutlineItem["onSelfClick"] }>();
   const restoreItem = (item: OutlineItem): void => {
     const saved = originals.get(item);
@@ -93,17 +105,24 @@ export function enhanceOutline(
     }
     outline.prevQuery = "\u0000floor-notes-refresh";
     try {
+      // Since 1.14, filtering reads each item's heading-derived path separately
+      // from highlighting. Both operations must see the temporary summaries.
+      if (method === "renderSearchMatches") outline.tree?.applySearchFilter();
       originalFilter.call(outline);
     } finally {
       for (const [item, heading] of replaced) item.heading = heading;
     }
   };
-  outline.filterSearchResults = filter;
+  outline[method] = filter;
   filter();
   return () => {
     for (const item of originals.keys()) restoreItem(item);
-    if (outline.filterSearchResults === filter) outline.filterSearchResults = originalFilter;
+    if (outline[method] === filter) {
+      if (hadOwnMethod) outline[method] = originalFilter;
+      else delete outline[method];
+    }
     outline.prevQuery = "\u0000floor-notes-refresh";
+    if (method === "renderSearchMatches") outline.tree?.applySearchFilter();
     originalFilter.call(outline);
   };
 }
@@ -136,7 +155,10 @@ export function installNativeOutlineEnhancement(app: App, plugin: Plugin): void 
             else void view.requestGeneration(id);
           }
         }));
-      } else outline.filterSearchResults();
+      } else {
+        const method = renderMethod(outline);
+        if (method) outline[method]?.();
+      }
     }
     for (const [outline, dispose] of adapters) {
       if (!live.has(outline)) {

@@ -17,6 +17,46 @@ function item(line: number, heading: string, level: number) {
 }
 
 describe("native outline enhancement", () => {
+  it("supports 1.14 rendering and separate path filtering, restoring native state on dispose", () => {
+    const floor = item(3, "Floor", 2);
+    const reply = item(8, "Reply", 3);
+    const heading = floor.heading;
+    const nativeClick = floor.onSelfClick;
+    let paths: string[] = [];
+    let highlighted: string[] = [];
+    const outline = {
+      file: null, prevQuery: "", cachedHeadingDom: [floor, reply],
+      tree: { applySearchFilter: vi.fn(() => {
+        paths = [floor.heading.heading, floor.heading.heading + "#" + reply.heading.heading];
+      }) },
+      renderSearchMatches: vi.fn(() => {
+        highlighted = outline.cachedHeadingDom.map(entry => entry.heading.heading);
+      })
+    };
+    const originalRender = outline.renderSearchMatches;
+    const navigate = vi.fn();
+    const dispose = enhanceOutline(outline, () => new Map([
+      [3, { id: "floor", text: "Floor summary" }],
+      [8, { id: "reply", text: "Reply summary" }]
+    ]), navigate);
+    expect(floor.innerEl.textContent).toBe("Floor summary");
+    expect(paths).toEqual(["Floor summary", "Floor summary#Reply summary"]);
+    expect(highlighted).toEqual(["Floor summary", "Reply summary"]);
+    expect(floor.heading).toBe(heading);
+    expect(heading.heading).toBe("Floor");
+    expect(floor.collapsed).toBe(true);
+    reply.onSelfClick(new MouseEvent("click"));
+    expect(navigate).toHaveBeenCalledWith("reply");
+    outline.tree.applySearchFilter.mockImplementationOnce(() => { throw new Error("filter failed"); });
+    expect(() => outline.renderSearchMatches()).toThrow("filter failed");
+    expect(floor.heading).toBe(heading);
+    dispose();
+    expect(outline.renderSearchMatches).toBe(originalRender);
+    expect(floor.onSelfClick).toBe(nativeClick);
+    expect(paths).toEqual(["Floor", "Floor#Reply"]);
+    expect(highlighted).toEqual(["Floor", "Reply"]);
+  });
+
   it("routes the document title to the floor-view start and restores native behavior when inactive", () => {
     const title = item(0, "碎碎念", 1);
     const nativeClick = title.onSelfClick;

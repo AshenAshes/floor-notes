@@ -1,5 +1,9 @@
 # Floor notes
 
+[![GitHub release](https://img.shields.io/github/v/release/AshenAshes/homepage-studio)](https://github.com/AshenAshes/homepage-studio/releases)
+[![License](https://img.shields.io/github/license/AshenAshes/homepage-studio)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/AshenAshes/homepage-studio/total)](https://github.com/AshenAshes/homepage-studio/releases)
+
 [简体中文说明](README_CN.md)
 
 > Turn an ordinary Markdown note into a readable, editable thread while keeping every floor and reply in the vault as human-readable Markdown.

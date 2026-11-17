@@ -28,6 +28,7 @@ function escapeKaomojiMarkdown(kaomoji: string): string {
 
 let editorModalSequence = 0;
 const hotkeyCompatibilityNotices = new WeakSet<App>();
+const editorModalSizeKey = "floor-notes-editor-modal-size";
 
 function configureFormattingButton(
   button: HTMLButtonElement,
@@ -81,6 +82,38 @@ export abstract class ThreadEditorModal extends Modal {
     private readonly initialSelection?: EditorSelectionRange
   ) {
     super(app);
+  }
+
+  private setupWindowSize(): void {
+    if (Platform.isMobile) {
+      return;
+    }
+
+    const { modalEl } = this;
+    modalEl.classList.add("is-resizable");
+    const saved: unknown = this.app.loadLocalStorage(editorModalSizeKey);
+    if (saved && typeof saved === "object" && "width" in saved && "height" in saved
+      && typeof saved.width === "number" && Number.isFinite(saved.width) && saved.width > 0
+      && typeof saved.height === "number" && Number.isFinite(saved.height) && saved.height > 0) {
+      modalEl.style.width = `${saved.width}px`;
+      modalEl.style.height = `${saved.height}px`;
+    }
+
+    const persistSize = (): void => {
+      // Native CSS resizing writes explicit dimensions, available even after close detaches the modal.
+      const width = Number.parseFloat(modalEl.style.width);
+      const height = Number.parseFloat(modalEl.style.height);
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        this.app.saveLocalStorage(editorModalSizeKey, { width, height });
+      }
+    };
+    const ownerWindow = modalEl.ownerDocument.defaultView;
+    if (ownerWindow && typeof ownerWindow.ResizeObserver === "function") {
+      const observer = new ownerWindow.ResizeObserver(persistSize);
+      observer.observe(modalEl);
+      this.renderComponent.register(() => observer.disconnect());
+    }
+    this.renderComponent.register(persistSize);
   }
 
   private activateMode(mode: EditorMode): void {
@@ -200,6 +233,7 @@ export abstract class ThreadEditorModal extends Modal {
 
     // Add custom class to modal wrapper for styling
     modalEl.classList.add("floor-notes-editor-modal");
+    this.setupWindowSize();
 
     // Apply custom theme classes so settings tokens are inherited by the modal.
     applyThemeClasses(modalEl, this.settings.theme, this.settings.mode);

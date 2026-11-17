@@ -4,3 +4,55 @@
   margin-top: 6px;
   min-height: 1.2em;
 }
+
+/* Resize the dialog shell; the editor and preview follow its available space. */
+.modal.floor-notes-editor-modal.is-resizable {
+  box-sizing: border-box;
+  width: 600px;
+  height: 560px;
+  min-width: min(360px, calc(100vw - 32px));
+  min-height: min(420px, calc(100dvh - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  resize: both;
+}
+
+.floor-notes-editor-modal.is-resizable .modal-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.floor-notes-editor-modal.is-resizable .floor-notes-modal-editor-container {
+  flex: 1 1 auto;
+  min-height: 180px;
+}
+
+.floor-notes-editor-modal.is-resizable .floor-notes-modal-header,
+.floor-notes-editor-modal.is-resizable .floor-notes-modal-toolbar,
+.floor-notes-editor-modal.is-resizable .floor-notes-modal-statusbar,
+.floor-notes-editor-modal.is-resizable .floor-notes-editor-actions,
+.floor-notes-editor-modal.is-resizable .floor-notes-modal-warn {
+  flex-shrink: 0;
+}
+
+.floor-notes-editor-modal.is-resizable .floor-notes-editor-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.floor-notes-editor-modal.is-resizable .floor-notes-wysiwyg-editor,
+.floor-notes-editor-modal.is-resizable .cm-editor {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
+.floor-notes-editor-modal.is-resizable .cm-scroller {
+  min-height: 0;
+  max-height: none;
+}

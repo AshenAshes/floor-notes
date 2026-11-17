@@ -8,6 +8,11 @@ import { appendRenderedImageFixture } from "../helpers/renderedImage";
 const { _testState } = obsidian as any;
 const noOp = { type: "no-op" } as const;
 
+function resizeModalShell(modal: obsidian.Modal, width: number, height: number): void {
+  modal.modalEl.style.width = `${width}px`;
+  modal.modalEl.style.height = `${height}px`;
+}
+
 function getSubmitButton(modal: { contentEl: HTMLElement }): HTMLButtonElement {
   const button = modal.contentEl.querySelector<HTMLButtonElement>(".floor-notes-editor-action-submit");
   if (!button) {
@@ -97,6 +102,79 @@ describe("CreateRecordModal and EditRecordModal validation and actions", () => {
     _testState.mockLocalStorage.clear();
     vi.clearAllMocks();
   });
+
+  it("remembers the entire dialog size across create and edit, including a new app instance", () => {
+    const app = new obsidian.App();
+    const create = new CreateRecordModal(app, "Create floor", "test-file.md", "size", vi.fn());
+    create.open();
+    resizeModalShell(create, 840, 640);
+    // Obsidian can detach the dialog before calling onClose; inline dimensions must survive this.
+    create.modalEl.remove();
+    create.close();
+
+    const edit = new EditRecordModal(new obsidian.App(), "Edit floor", "other-file.md", "floor", "Body", vi.fn());
+    edit.open();
+    expect(edit.modalEl.style.width).toBe("840px");
+    expect(edit.modalEl.style.height).toBe("640px");
+    expect(edit.modalEl.classList.contains("is-resizable")).toBe(true);
+    expect(edit.contentEl.style.width).toBe("");
+    edit.close();
+  });
+
+  it("persists native resizes while open and disconnects the owning observer on close", () => {
+    const originalObserver = Object.getOwnPropertyDescriptor(window, "ResizeObserver");
+    let notifyResize = (): void => {};
+    const disconnect = vi.fn();
+    const observe = vi.fn();
+    Object.defineProperty(window, "ResizeObserver", {
+      configurable: true,
+      value: class {
+        private isDialog = false;
+        constructor(private readonly callback: () => void) {}
+        observe(target: Element): void {
+          observe(target);
+          if (target.classList.contains("floor-notes-editor-modal")) {
+            this.isDialog = true;
+            notifyResize = this.callback;
+          }
+        }
+        disconnect(): void {
+          if (this.isDialog) disconnect();
+        }
+      }
+    });
+    const app = new obsidian.App();
+    const modal = new CreateRecordModal(app, "Create floor", "file.md", "size-observer", vi.fn());
+    try {
+      modal.open();
+      expect(observe).toHaveBeenCalledWith(modal.modalEl);
+      notifyResize();
+      expect(app.loadLocalStorage("floor-notes-editor-modal-size")).toBeNull();
+      resizeModalShell(modal, 900, 700);
+      notifyResize();
+      expect(app.loadLocalStorage("floor-notes-editor-modal-size")).toEqual({ width: 900, height: 700 });
+      modal.close();
+      expect(disconnect).toHaveBeenCalledOnce();
+    } finally {
+      if (originalObserver) {
+        Object.defineProperty(window, "ResizeObserver", originalObserver);
+      } else {
+        Reflect.deleteProperty(window, "ResizeObserver");
+      }
+    }
+  });
+
+  it.each([null, { width: -10, height: 600 }, { width: 800, height: NaN }, { width: "800px", height: 600 }])(
+    "ignores invalid saved dialog dimensions: %j", (size) => {
+      const app = new obsidian.App();
+      app.saveLocalStorage("floor-notes-editor-modal-size", size);
+      const modal = new CreateRecordModal(app, "Create floor", "file.md", "invalid-size", vi.fn());
+      modal.open();
+      expect(modal.modalEl.style.width).toBe("");
+      expect(modal.modalEl.style.height).toBe("");
+      modal.close();
+    }
+  );
 
   it("T-039 T-040 T-041: validates empty input and closes after a successful create", async () => {
     const app = new obsidian.App();
